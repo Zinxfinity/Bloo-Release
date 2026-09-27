@@ -1,0 +1,36 @@
+{
+  "name": "bloo",
+  "version": "2.0.0",
+  "description": "Bloo, moderation, utility, and general bot for Fluxer",
+  "type": "module",
+  "main": "index.js",
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "scripts": {
+    "start": "node index.js",
+    "watchdog": "node watchdog.js",
+    "check": "node --check index.js",
+    "check:events": "node scripts/check-events.mjs",
+    "cleanup:guilds": "node scripts/cleanupStaleGuilds.mjs"
+  },
+  "packageManager": "pnpm@10.29.3",
+  "dependencies": {
+    "@fluxerjs/builders": "^3.0.0",
+    "@fluxerjs/core": "^3.0.0",
+    "@fluxerjs/voice": "^3.0.0",
+    "better-sqlite3": "12.4.1",
+    "better-sqlite3-session-store": "^0.1.0",
+    "canvas": "^3.2.3",
+    "dotenv": "^17.4.2",
+    "express": "^4.22.2",
+    "express-session": "^1.19.0"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "better-sqlite3",
+      "canvas",
+      "node-webcodecs"
+    ]
+  }
+}

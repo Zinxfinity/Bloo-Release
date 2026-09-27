@@ -1,0 +1,30 @@
+# Keeps your secrets and your servers' data out of git.
+
+# Settings: .env holds your bot token. Only the template is committed.
+.env
+.env*
+!.env.example
+
+# Database: every server's settings live here. Back it up, never commit it.
+data/
+*.db
+*.db-shm
+*.db-wal
+*.bak
+
+# Dependencies (pnpm install recreates them)
+node_modules/
+
+# Logs
+*.log
+logs/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
