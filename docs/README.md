@@ -13,7 +13,11 @@ Everything below runs from chat commands, with the prefix you choose (`b!` by de
 - **Roles:** auto-role for new members (held until they pass verification, when verification is on), reaction roles, role menus, role persistence for members who leave and rejoin, and bulk role changes.
 - **Support tickets:** ticket panels, staff-only channels, and an HTML transcript sent to the person who opened the ticket.
 - **Ban appeals:** banned members can appeal by replying to Bloo's DM.
-- **Community:** XP and levels, giveaways, polls, a starboard, welcome messages, tags and custom command aliases, reminders, scheduled messages, an embed builder, RSS and social feeds posted through webhooks, and announcement relays between servers.
+- **Community:** XP and levels, giveaways, polls, a starboard, welcome messages, tags and custom command aliases, reminders, scheduled messages, an embed builder, and RSS and social feeds posted through webhooks.
+- **Rank cards:** image rank and profile cards in eight themes, picked per member with `b!card`. Custom card backgrounds are built in but switched off; they need a bot owner to approve each upload.
+- **Feedback from your users:** `b!suggest` posts ideas to a channel for voting and DMs the suggester when you set a status, `b!feedback` takes private notes, and commands marked as beta only work for a beta tester role. Set them up in `.env` (the Community section).
+- **FluxerList votes:** if your copy has its own FluxerList listing, `b!vote` and voter perks (a Supporter badge, a card theme and an optional role) work with your own API key.
+- **A welcome DM** to the owner of each new server your copy joins, sent once, with where to start.
 - **General and fun:** server and user info, avatars, quotes, profiles, dice, 8ball, and a handful of light games.
 - **Owner tools:** four commands only you (the people in `BOT_OWNERS`) can run. `b!fix` clears a command that locked itself after repeated errors, `b!reload` reloads commands without a restart, `b!eval` runs code in the bot's process, and `b!changelog` writes release notes and posts them to a webhook.
 - **An alert watchdog** (`watchdog.js`) that watches the bot from outside and posts to a webhook when it freezes, loses its connection, or gets stuck restarting.
@@ -21,7 +25,7 @@ Everything below runs from chat commands, with the prefix you choose (`b!` by de
 ## What's not included
 
 - **The economy.** Bloo's economy game (coins, jobs, the shop, NPCs, crafting, expeditions and the rest) is not part of this release and can't be switched on. Its code isn't in this repository, so there is nothing to enable.
-- **The web dashboard.** Everything in this release is configured with chat commands instead. Commands that manage dashboard access, such as `b!dash`, still run, but they have nothing to connect to.
+- **The web dashboard.** Everything in this release is configured with chat commands instead. Commands that manage dashboard access, such as `b!dash`, still run, but they have nothing to connect to. That includes the Server Insights page: your copy still keeps its small join, leave and command-count records (pruned automatically), but there's no page to view them.
 - **The website, docs site and status page** at bloo-bot.xyz.
 - **Web captcha verification.** It sends members to a verification page on the website, which you won't have. Use the in-DM image captcha instead (see [Before you invite it](#before-you-invite-it)).
 - **Hosting setup:** the developer's deploy scripts, server config and the watchdog service that restarts the official bot. You pick your own way of keeping the bot running.

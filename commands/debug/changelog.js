@@ -49,7 +49,7 @@ export default {
       if (sub === 'list') {
         const drafts = listDrafts();
         const hook = webhookSummary();
-        const lines = drafts.map(d => `**#${d.id} ${d.title}**${d.tags.length ? ` · ${d.tags.join(', ')}` : ''}${d.source === 'deploy' ? ' · from a deploy' : ''}`);
+        const lines = drafts.map(d => `**#${d.id} ${d.title}**${d.tags.length ? ` · ${d.tags.join(', ')}` : ''}${d.source === 'deploy' ? ' · from a deploy' : d.source?.startsWith('day:') ? ` · ${d.source.slice(4)}` : ''}`);
         const last = latestRelease();
         return reply(Embed.info(
           `${lines.length ? fitLines(lines) : 'No drafts waiting.'}\n\n${last ? `Last release: **v${last.version}** (build ${last.build})` : 'Nothing published yet.'}` +

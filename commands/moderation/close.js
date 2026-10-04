@@ -1,7 +1,5 @@
 import { Embed }        from '../../config/embeds.js';
-import { getTicketByChannel, closeTicketWithNotice } from '../../handlers/ticketSystem/index.js';
-import { Permissions }          from '../../config/guildPermissions.js';
-import { resolveAccess }        from '../../handlers/commandPermissions.js';
+import { getTicketByChannel, closeTicketWithNotice, canCloseTicket, closeRequirementText } from '../../handlers/ticketSystem/index.js';
 
 export default {
   name: 'close',
@@ -10,7 +8,7 @@ export default {
   usage: '{prefix}close [reason]',
 
   requiredPermission: null,
-  internalAccess: true, // subcommands gate themselves via resolveAccess
+  internalAccess: true, // checks the opener, support role and close requirement itself
 
   cooldown: 3,
 
@@ -35,13 +33,10 @@ export default {
       return;
     }
 
-    const isOwner = ticket.user_id === message.author.id;
-    const isMod   = isOwner ? true : await resolveAccess(client, guildId, message.author.id, 'close', Permissions.KICK_MEMBERS);
-
-    if (!isOwner && !isMod) {
-      await message.reply({ embeds: [Embed.denied('Ticket Owner or Mod+')
-        .setDescription('Only the person who opened this ticket, or a **Mod+**, can close it.')
-        .toJSON()] });
+    if (!await canCloseTicket(client, guildId, ticket, message.author.id)) {
+      await message.reply({ embeds: [Embed.denied("Can't close this ticket")
+        .setDescription(closeRequirementText(guildId, ticket))
+        .toJSON()], allowedMentions: { parse: [] } });
       return;
     }
 

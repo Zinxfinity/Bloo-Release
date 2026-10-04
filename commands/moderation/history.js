@@ -68,7 +68,7 @@ function buildCaseListEmbed(cases, title) {
 
 export default {
   name: 'history',
-  aliases: ['cases', 'case', 'h', 'note', 'addnote', 'modhistory'],
+  aliases: ['cases', 'case', 'note', 'addnote', 'modhistory'], // not "h": that's b!help
   description: 'View mod history for a user, look up cases, or add a staff note.',
   usage: '{prefix}history <@user|id>\n{prefix}case <id | user @user | by @user | recent [n]>\n{prefix}note @user <text>',
   requiredPermission: Permissions.KICK_MEMBERS,

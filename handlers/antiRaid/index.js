@@ -33,7 +33,10 @@ export async function sendVerification(client, guildId, userId, member, config) 
   // captcha DMs go out, so gating sends on it left every guild configured
   // purely through the (correctly labeled) Captcha Verification card
   // completely inert with no error anywhere.
-  if (!config?.captcha_enabled || !config.verified_role_id) return false;
+  // Each skip says why when DEBUG=true, so "the captcha never came" can be
+  // traced from the log instead of guessed at.
+  if (!config?.captcha_enabled) { logger.debug(`[ANTIRAID] No captcha for ${userId} in ${guildId}: verification is off`); return false; }
+  if (!config.verified_role_id) { logger.debug(`[ANTIRAID] No captcha for ${userId} in ${guildId}: no verified role set`); return false; }
 
   // Skip if already verified (rejoin with role persist, or re-reacting on
   // the standing panel), avoids spamming a fresh token/DM captcha session
@@ -41,7 +44,8 @@ export async function sendVerification(client, guildId, userId, member, config) 
   const hasRole = member?.roles?.has?.(config.verified_role_id)
                ?? member?.roles?.includes?.(config.verified_role_id)
                ?? false;
-  if (hasRole) return false;
+  if (hasRole) { logger.debug(`[ANTIRAID] No captcha for ${userId} in ${guildId}: already has the verified role`); return false; }
+  logger.debug(`[ANTIRAID] Sending ${config.verify_mode ?? 'web'} verification to ${userId} in ${guildId}`);
 
   // verify_mode, not the older `mode` column, is what !antiraid mode
   // actually writes and what the config panel / !verify command already

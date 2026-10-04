@@ -38,7 +38,7 @@ async function postToWebhook(webhookUrl, payload) {
 
 export default {
   name:    'bugreport',
-  aliases: ['report', 'feedback'],
+  aliases: ['report'],
   description: 'Submit a bug report or feedback to the Bloo team. Attach an image for screenshots.',
   usage:   '{prefix}bugreport <description>',
   category: 'general',

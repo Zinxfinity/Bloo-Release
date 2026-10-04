@@ -17,7 +17,7 @@ export {
   isTicketBlacklisted, addToTicketBlacklist, removeFromTicketBlacklist, getTicketBlacklist,
 } from './blacklist.js';
 
-export { buildTicketOverwrites } from './permissions.js';
+export { buildTicketOverwrites, ticketSupportRoles, canCloseTicket, closeRequirementText } from './permissions.js';
 
 export {
   registerExistingTicket, openTicket, closeTicket, closeTicketWithNotice, reopenTicket,

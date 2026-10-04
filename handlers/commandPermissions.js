@@ -6,7 +6,7 @@
 // role's own permissions.
 
 import db from '../db.js';
-import { getMemberPermissionBits, fetchLiveRoles } from '../config/guildPermissions.js';
+import { getMemberPermissionBits, fetchLiveRoles, Permissions } from '../config/guildPermissions.js';
 
 // ─── Schema ───────────────────────────────────────────────────────────────────
 db.exec(`
@@ -211,4 +211,37 @@ export async function hasRoleLive(client, guildId, userId, roleId) {
     const member = await client.rest.get(`/guilds/${guildId}/members/${userId}`).catch(() => null);
     return !!member?.roles?.includes(roleId);
   } catch { return false; }
+}
+
+// ─── requirementLabel ─────────────────────────────────────────────────────────
+// What a command needs in this server, for refusal messages: a role mention
+// or permission name from a per-server override, otherwise the default.
+// requirementPhrase() wraps it as "the @Mod role" / "the **Kick Members** permission".
+const PERM_NAMES = new Map([
+  [Permissions.KICK_MEMBERS,     'Kick Members'],
+  [Permissions.BAN_MEMBERS,      'Ban Members'],
+  [Permissions.MANAGE_GUILD,     'Manage Server'],
+  [Permissions.MANAGE_MESSAGES,  'Manage Messages'],
+  [Permissions.MANAGE_CHANNELS,  'Manage Channels'],
+  [Permissions.MANAGE_ROLES,     'Manage Roles'],
+  [Permissions.MANAGE_WEBHOOKS,  'Manage Webhooks'],
+  [Permissions.MODERATE_MEMBERS, 'Timeout Members'],
+  [Permissions.ADMINISTRATOR,    'Administrator'],
+]);
+
+export function requirementLabel(guildId, commandName, defaultPermission) {
+  const cfg = getCommandConfig(guildId, commandName);
+  if (cfg?.required_type === 'role' && cfg.required_value) return `<@&${cfg.required_value}>`;
+  if (cfg?.required_type === 'permission' && cfg.required_value) return PERM_NAMES.get(BigInt(cfg.required_value)) ?? 'Unknown Permission';
+  if (defaultPermission === 'SERVER_OWNER') return 'Server Owner';
+  if (defaultPermission === 'BOT_OWNER') return 'Bot Owner';
+  if (defaultPermission == null) return 'Everyone';
+  return PERM_NAMES.get(defaultPermission) ?? 'Unknown Permission';
+}
+
+export function requirementPhrase(guildId, commandName, defaultPermission) {
+  const label = requirementLabel(guildId, commandName, defaultPermission);
+  if (label.startsWith('<@&')) return `the ${label} role`;
+  if (['Server Owner', 'Bot Owner'].includes(label)) return `the ${label}`;
+  return `the **${label}** permission`;
 }

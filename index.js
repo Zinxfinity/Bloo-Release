@@ -31,10 +31,14 @@ export const client = new Client({
     activities: [{ name: siteHost(), type: 3 }],
     custom_status: { text: 'Try b!help' },
   },
+  // guilds and channels are unbounded on purpose. The library drops events
+  // (member joins, member updates) for any server it has pushed out of the
+  // guild cache, so a 200 cap silently broke the captcha, welcome messages
+  // and auto-role in every server past the 200th.
   cache: {
-    guilds:   200,
+    guilds:   Infinity,
     users:    10_000,
-    channels: 5_000,
+    channels: Infinity,
     messages: 50,
   },
   gatewayDebug:        false,

@@ -4,6 +4,7 @@ import { registerPagination } from '../../handlers/paginationManager.js';
 import { isBotOwner, isRealOwner, getMemberPermissionBitsLive } from '../../handlers/staffSystem.js';
 import { Permissions } from '../../config/guildPermissions.js';
 import { isEconomyAdmin, isEconomyReleased, economyEnabled } from '../../config/features.js';
+import { isBetaTester } from '../../handlers/betaTesters.js';
 
 const PERM_NAMES = new Map([
   [Permissions.KICK_MEMBERS,     'Kick Members'],
@@ -38,10 +39,11 @@ function getRequiresLabel(cmd) {
 
 // Whether the caller can see a command in the help overview, not part of
 // access control itself (commandHandler.js's Gate 3 is the real gate).
-function canSeeCommand(cmd, { isBotOwnerUser, isOwnerUser, bits, economyVisible }) {
+function canSeeCommand(cmd, { isBotOwnerUser, isOwnerUser, bits, economyVisible, betaTester }) {
   if (isBotOwnerUser) return true;
   if (cmd.category === 'debug') return false;
   if (cmd.hidden) return false;
+  if (cmd.beta && !betaTester) return false;
   // Economy is gated behind the same release toggle commandHandler.js's
   // Gate 4 already enforces at execution time. Previously this listed every
   // economy command for everyone regardless of release state, so a regular
@@ -105,7 +107,8 @@ export default {
     const isOwnerUser    = isBotOwnerUser || await isRealOwner(guildId, userId);
     const bits           = await getMemberPermissionBitsLive(client, guildId, userId);
     const economyVisible = economyEnabled() && (isBotOwnerUser || await isEconomyReleased() || await isEconomyAdmin(userId));
-    const access         = { isBotOwnerUser, isOwnerUser, bits, economyVisible };
+    const betaTester     = isBotOwnerUser || await isBetaTester(userId);
+    const access         = { isBotOwnerUser, isOwnerUser, bits, economyVisible, betaTester };
 
     // Separate query from optional page number
     // Supports: b!help moderation, b!help moderation 2, b!help ban

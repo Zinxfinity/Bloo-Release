@@ -140,6 +140,9 @@ export default {
     await startPoller(client, '../../handlers/fluxerStatusMonitor.js', 'startFluxerStatusMonitor');
     await startPoller(client, '../../handlers/statusPoller.js',        'startStatusPoller');
     await startPoller(client, '../../handlers/fluxerListReporter.js', 'startFluxerListReporter', client);
+    await startPoller(client, '../../handlers/votes.js',              'startVotePoller');
+    await startPoller(client, '../../handlers/retiredFeatures.js',    'cleanupRetiredFeatures');
+    await startPoller(client, '../../handlers/serverInsights.js',     'startInsights');
     await startPoller(client, '../../handlers/antiRaid/index.js',    'restoreVerifyPanels', client);
     await startPoller(client, '../../handlers/antiRaid/index.js',    'startPanelRepostPoller', client);
     // ECONOMY_ENABLED=false: skip every economy background timer too, not

@@ -8,6 +8,7 @@
 import { EmbedBuilder }    from '@fluxerjs/core';
 import { Embed, COLORS }   from '../../config/embeds.js';
 import { renderRankCard }  from '../../handlers/profileCard.js';
+import { getCardProfile }  from '../../handlers/cardBackgrounds.js';
 import {
   getXpConfig, getUserXp, getUserRank,
   levelProgress, getLevelName,
@@ -16,7 +17,7 @@ import { parseUserMention } from '@fluxerjs/core';
 
 export default {
   name: 'profile',
-  aliases: ['card', 'pfc'],
+  aliases: ['pfc'], // not "card": that's the b!card command
   description: 'View your profile card: XP, level, and rank.',
   usage: '{prefix}profile [@user | userId]',
   category: 'general',
@@ -59,13 +60,19 @@ export default {
 
     const xp = userData.xp ?? 0;
     // Totals on both sides, and the guild's custom ladder when it has one.
-    const { level, next, progress } = levelProgress(guildId, xp);
+    const { level, next, nextLevel, progress } = levelProgress(guildId, xp);
     const levelName = getLevelName(guildId, level);
     const rank = getUserRank(guildId, targetId) ?? 0;
 
+    // Same card as b!xp rank, with the member's b!card theme and background.
+    const card = getCardProfile(targetId);
     const cardBuffer = await renderRankCard({
+      theme: card.theme, background: card.background, supporter: card.supporter, contributor: card.contributor,
       username, avatarUrl, xp, level, rank, levelName,
-      xpForNextLevel: next ?? xp, // top of a custom ladder
+      xpForNextLevel: next ?? xp,
+      maxed: next == null, // top of a custom ladder
+      nextLabel: next == null ? null : (getLevelName(guildId, nextLevel) ?? `Level ${nextLevel}`),
+      fallbackName: userData.display_name,
       xpProgress: progress,
     });
 

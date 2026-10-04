@@ -1,3 +1,7 @@
+import { getTicketConfig, getTicketOptions } from './config.js';
+import { resolveAccess, requirementPhrase } from '../commandPermissions.js';
+import { Permissions } from '../../config/guildPermissions.js';
+
 // ─── Ticket channel permission overwrites ──────────────────────────────────────
 // Shared by openTicket and reopenTicket in lifecycle.js, both need the same
 // "hide from @everyone, allow the opener, allow the support role" overwrite set.
@@ -35,4 +39,38 @@ export async function lockTicketChannel(client, channelId, userId) {
       body: { id: userId, type: 1, allow: String(1024 | 65536), deny: String(2048) },
     });
   } catch { /* best effort, channel may already be gone */ }
+}
+
+// ─── Who can close a ticket ───────────────────────────────────────────────────
+// One rule for b!close, b!ticket close and the close reaction. Any of these
+// can close:
+//   - the ticket's opener
+//   - a member holding a support role: the ticket's category role AND the
+//     server-wide support role both count
+//   - a member meeting the server's close requirement: Kick Members by
+//     default, or the role/permission set with b!permissions close
+// Support staff used to be able to see and answer a ticket but not close it.
+export function ticketSupportRoles(guildId, ticket) {
+  const option = ticket?.option_label ? getTicketOptions(guildId).find(o => o.label === ticket.option_label) : null;
+  return [...new Set([option?.support_role_id, getTicketConfig(guildId)?.support_role_id].filter(Boolean))];
+}
+
+export async function canCloseTicket(client, guildId, ticket, userId) {
+  if (ticket.user_id === userId) return true;
+  const roles = ticketSupportRoles(guildId, ticket);
+  if (roles.length) {
+    const member = await client.rest.get(`/guilds/${guildId}/members/${userId}`).catch(() => null);
+    if (Array.isArray(member?.roles) && roles.some(r => member.roles.includes(r))) return true;
+  }
+  return resolveAccess(client, guildId, userId, 'close', Permissions.KICK_MEMBERS);
+}
+
+// "Only the person who opened this ticket, the @Support role, or someone with
+// the Kick Members permission can close it."
+export function closeRequirementText(guildId, ticket) {
+  const roles = ticketSupportRoles(guildId, ticket).map(r => `<@&${r}>`);
+  const who = ['the person who opened this ticket'];
+  if (roles.length) who.push(`the ${roles.join(' or ')} role`);
+  who.push(`someone with ${requirementPhrase(guildId, 'close', Permissions.KICK_MEMBERS)}`);
+  return `Only ${who.slice(0, -1).join(', ')}, or ${who.at(-1)} can close it.`;
 }

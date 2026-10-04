@@ -227,6 +227,15 @@ const stmts = {
       hidden       = 0
   `),
   setLevel: db.prepare(`UPDATE xp_users SET level = ? WHERE guild_id = ? AND user_id = ?`),
+  // Manual XP changes (b!xp give/take/set). Unlike upsertUser this leaves
+  // last_xp_at alone, so a staff change doesn't reset the member's cooldown.
+  setXp: db.prepare(`
+    INSERT INTO xp_users (guild_id, user_id, xp, level, last_xp_at, display_name)
+    VALUES (?, ?, ?, 0, 0, ?)
+    ON CONFLICT (guild_id, user_id) DO UPDATE SET
+      xp           = excluded.xp,
+      display_name = COALESCE(excluded.display_name, xp_users.display_name)
+  `),
   // stats_private (Account page opt-out, global across every guild, see
   // handlers/userPreferences.js) excludes a user from the leaderboard the
   // same way `hidden` already does for left-server pruning, distinct
@@ -530,34 +539,127 @@ function hexToInt(hex) {
   return isNaN(n) ? null : n;
 }
 
-// ─── handleLevelUp ────────────────────────────────────────────────────────────
-async function handleLevelUp(client, message, guildId, userId, oldLevel, level, totalXp, config) {
-  // Role rewards. Non-stacking keeps only the highest reward level reached,
-  // not "a reward at exactly this level": a jump from 4 to 6 (a boost, or a
-  // sparse custom ladder) used to skip the level 5 role and remove it too.
-  const rewards  = (config.role_rewards ?? 1) ? stmts.getRoleRewards.all(guildId) : [];
+// ─── Reward roles ─────────────────────────────────────────────────────────────
+// The one place that decides which level roles a member should hold, used by
+// level-ups, manual XP changes and b!xp syncroles. Non-stacking keeps only the
+// highest reward level reached, not "a reward at exactly this level": a jump
+// from 4 to 6 (a boost, or a sparse custom ladder) would otherwise skip the
+// level 5 role. removeHigher also takes away roles for levels above `level`
+// (after XP was taken away); a plain level-up never needs that. `have` is the
+// member's current role IDs when known, so only real changes are sent.
+async function applyRewardRoles(client, guildId, userId, level, config, { removeHigher = false, have = null } = {}) {
+  const result = { given: 0, removed: 0, failed: 0 };
+  if (!(config.role_rewards ?? 1)) return result;
+  const rewards  = stmts.getRoleRewards.all(guildId);
   const reached  = rewards.filter(r => r.level <= level);
   const topLevel = reached.length ? reached[reached.length - 1].level : null;
   const keep     = config.stack_roles ? reached : reached.filter(r => r.level === topLevel);
   const keepIds  = new Set(keep.map(r => r.role_id));
+  const drop     = rewards.filter(r => !keepIds.has(r.role_id) && (r.level <= level ? !config.stack_roles : removeHigher));
 
-  for (const reward of keep) {
+  // Failures are logged: the usual cause is Bloo's own role sitting below the
+  // reward role (or missing Manage Roles), which used to fail with no trace.
+  for (const r of keep) {
+    if (have?.has(r.role_id)) continue;
     try {
-      await client.rest.put(
-        `/guilds/${guildId}/members/${userId}/roles/${reward.role_id}`
-      );
-    } catch { /* best effort */ }
-  }
-
-  if (!config.stack_roles) {
-    for (const r of reached.filter(r => !keepIds.has(r.role_id))) {
-      try {
-        await client.rest.delete(
-          `/guilds/${guildId}/members/${userId}/roles/${r.role_id}`
-        );
-      } catch { /* best effort */ }
+      await client.rest.put(`/guilds/${guildId}/members/${userId}/roles/${r.role_id}`);
+      result.given++;
+    } catch (err) {
+      result.failed++;
+      logger.warn(`[XP] Couldn't give level ${r.level} role ${r.role_id} to ${userId} in ${guildId}: ${err.message}. Check Bloo's role is above it and has Manage Roles.`);
     }
   }
+  for (const r of drop) {
+    if (have && !have.has(r.role_id)) continue;
+    try {
+      await client.rest.delete(`/guilds/${guildId}/members/${userId}/roles/${r.role_id}`);
+      result.removed++;
+    } catch (err) {
+      result.failed++;
+      logger.warn(`[XP] Couldn't remove level ${r.level} role ${r.role_id} from ${userId} in ${guildId}: ${err.message}`);
+    }
+  }
+  return result;
+}
+
+// ─── Manual XP changes ────────────────────────────────────────────────────────
+export const MAX_XP = 1_000_000_000;
+
+// Reward roles a member with `xp` would hold, so a command can check the
+// person changing XP could give those roles by hand before applying it.
+export function rewardRolesForXp(guildId, xp) {
+  const config = getXpConfig(guildId);
+  if (!(config.levels_enabled ?? 1) || !(config.role_rewards ?? 1)) return [];
+  const level    = levelFromXp(Math.max(0, xp), guildId);
+  const reached  = stmts.getRoleRewards.all(guildId).filter(r => r.level <= level);
+  const topLevel = reached.length ? reached[reached.length - 1].level : null;
+  return config.stack_roles ? reached : reached.filter(r => r.level === topLevel);
+}
+
+// mode: 'give' | 'take' | 'set'. Applies the new level and its reward roles
+// straight away (no level-up message: staff see the result in their reply).
+export async function adjustXp(client, guildId, userId, mode, amount, displayName = null) {
+  const config   = getXpConfig(guildId);
+  const user     = stmts.getUser.get(guildId, userId);
+  const before   = user?.xp ?? 0;
+  const oldLevel = user?.level ?? 0;
+  const raw      = mode === 'set' ? amount : mode === 'take' ? before - amount : before + amount;
+  const xp       = Math.max(0, Math.min(MAX_XP, Math.round(raw)));
+  stmts.setXp.run(guildId, userId, xp, displayName);
+  const level = levelFromXp(xp, guildId);
+  stmts.setLevel.run(level, guildId, userId);
+  const roles = (config.levels_enabled ?? 1)
+    ? await applyRewardRoles(client, guildId, userId, level, config, { removeHigher: true })
+    : null;
+  return { before, xp, oldLevel, level, roles };
+}
+
+// ─── b!xp syncroles ───────────────────────────────────────────────────────────
+// Brings every tracked member's level roles in line with their XP, for
+// members who passed a level before its role existed, or while Bloo couldn't
+// give it. One run per server at a time.
+const _syncing = new Set();
+
+export async function syncRewardRoles(client, guildId, onProgress = null) {
+  if (_syncing.has(guildId)) return { busy: true };
+  const config = getXpConfig(guildId);
+  if (!(config.levels_enabled ?? 1) || !(config.role_rewards ?? 1)) return { off: true };
+  const rewards = stmts.getRoleRewards.all(guildId);
+  if (!rewards.length) return { noRewards: true };
+
+  _syncing.add(guildId);
+  try {
+    // Members below the lowest reward level can't be owed a role.
+    const lowest = rewards[0].level;
+    const users  = db.prepare(`SELECT user_id, xp FROM xp_users WHERE guild_id = ?`).all(guildId)
+      .map(u => ({ ...u, level: levelFromXp(u.xp, guildId) }))
+      .filter(u => u.level >= lowest);
+    const res = { total: users.length, checked: 0, changed: 0, given: 0, removed: 0, left: 0, failed: 0 };
+    for (const u of users) {
+      stmts.setLevel.run(u.level, guildId, u.user_id);
+      let member;
+      try {
+        member = await client.rest.get(`/guilds/${guildId}/members/${u.user_id}`);
+      } catch (err) {
+        if (err.status === 404 || err.statusCode === 404) res.left++;
+        else { res.failed++; logger.warn(`[XP] syncroles couldn't read ${u.user_id} in ${guildId}: ${err.message}`); }
+        continue;
+      }
+      const r = await applyRewardRoles(client, guildId, u.user_id, u.level, config, { removeHigher: true, have: new Set(member?.roles ?? []) });
+      res.checked++;
+      res.given += r.given; res.removed += r.removed; res.failed += r.failed;
+      if (r.given || r.removed) res.changed++;
+      if (onProgress && res.checked % 25 === 0) await onProgress(res);
+    }
+    return res;
+  } finally {
+    _syncing.delete(guildId);
+  }
+}
+
+// ─── handleLevelUp ────────────────────────────────────────────────────────────
+async function handleLevelUp(client, message, guildId, userId, oldLevel, level, totalXp, config) {
+  await applyRewardRoles(client, guildId, userId, level, config);
 
   // Level-up message. levelup_notify is the separate "still give the role,
   // just don't announce it" toggle. With no channel set it goes where the

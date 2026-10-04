@@ -2,6 +2,7 @@ import { Events } from '@fluxerjs/core';
 import * as resilience from '../../handlers/resilience.js';
 import { getMemberRoleIds } from '../../config/guildPermissions.js';
 import { recordMemberJoin } from '../../handlers/memberTracking.js';
+import logger from '../../utils/logger.js';
 
 let _sendWelcome    = null;
 let _handleJoin     = null;
@@ -16,6 +17,7 @@ export default {
 
   async execute(client, member) {
     const guildId = member.guild?.id ?? member.guildId;
+    logger.debug(`[JOIN] ${member.user?.id ?? member.id} joined ${guildId ?? 'an unknown server'}`);
     if (!guildId) return;
 
     // Snapshot joinedAt + current roles now, while this member object is

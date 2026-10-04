@@ -107,9 +107,26 @@ export async function loadCommandFile(client, filePath, category = 'unknown') {
       if (cmd.name === command.name) client.commands.delete(key);
     }
 
+    // Names and aliases share one map. A real command name always beats
+    // another command's alias; an alias never replaces a real command. Two
+    // aliases clashing keep the old rule (the later file wins) so existing
+    // shortcuts don't change meaning. All clashes are logged. Before this,
+    // profile.js's "card" alias silently swallowed the b!card command.
+    const holder = client.commands.get(command.name);
+    if (holder && holder.name !== command.name) {
+      logger.warn(`[CMD] "${command.name}" was an alias of ${holder.name}; the ${command.name} command takes it`);
+    }
     client.commands.set(command.name, command);
     if (Array.isArray(command.aliases)) {
       for (const alias of command.aliases) {
+        const taken = client.commands.get(alias);
+        if (taken && taken.name === alias) {
+          logger.warn(`[CMD] Alias "${alias}" of ${command.name} is already the ${alias} command; ignoring it`);
+          continue;
+        }
+        if (taken && taken.name !== command.name) {
+          logger.warn(`[CMD] Alias "${alias}" was ${taken.name}'s, now ${command.name}'s`);
+        }
         client.commands.set(alias, command);
       }
     }

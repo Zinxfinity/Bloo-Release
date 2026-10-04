@@ -269,30 +269,49 @@ export function setWebhookUrl(url) {
 }
 
 const COLOR = 0x4ade80;
-// Embeds for one release, split into messages that stay inside Fluxer's
-// limits: 10 embeds and 6000 characters per message.
+// One release as a single tidy embed: entry titles grouped by topic, with
+// the full write-ups left on the docs changelog. Returned as a list of
+// messages (always one) so postRelease stays the same shape.
+const TOPIC_HEADINGS = {
+  moderation: '🛡️ Moderation', verification: '🔐 Verification', tickets: '🎫 Tickets', xp: '⭐ XP and levels',
+  economy: '💰 Economy', community: '💬 Community', feeds: '📰 Feeds', dashboard: '🖥️ Dashboard', docs: '📘 Docs',
+  commands: '⌨️ Commands', performance: '⚡ Performance', security: '🔒 Security', fixes: '🔧 Fixes',
+};
+const TOPIC_ORDER = Object.keys(TOPIC_HEADINGS);
+const DESC_LIMIT = 3900; // Fluxer's embed description limit is 4096; leave room for the "more" line
+
 export function releaseMessages(release) {
-  const date = new Date(release.publishedAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' });
-  const embeds = [{
-    title: `Bloo v${release.version}`, url: release.url, color: COLOR,
-    description: `Build ${release.build} · ${date}\nFull notes: ${release.url}`,
-  }, ...release.entries.map(e => {
-    const topics = e.tags.filter(t => !t.startsWith('release-'));
-    return {
-      title: e.title.slice(0, 256), color: COLOR,
-      description: (e.body || ' ').slice(0, 4000),
-      ...(topics.length ? { footer: { text: topics.join(' · ') } } : {}),
-    };
-  })];
-  const size = e => (e.title?.length ?? 0) + (e.description?.length ?? 0) + (e.footer?.text?.length ?? 0);
-  const messages = [];
-  let cur = [], chars = 0;
-  for (const e of embeds) {
-    if (cur.length && (cur.length === 10 || chars + size(e) > 5800)) { messages.push(cur); cur = []; chars = 0; }
-    cur.push(e); chars += size(e);
+  // Each entry goes under its first topic tag; untagged ones go under "Other".
+  const groups = new Map();
+  for (const e of release.entries) {
+    const topic = e.tags.find(t => TOPIC_HEADINGS[t]) ?? 'other';
+    if (!groups.has(topic)) groups.set(topic, []);
+    groups.get(topic).push(e.title);
   }
-  if (cur.length) messages.push(cur);
-  return messages;
+  const order = [...groups.keys()].sort((a, b) => (TOPIC_ORDER.indexOf(a) + 1 || 99) - (TOPIC_ORDER.indexOf(b) + 1 || 99));
+
+  const lines = [];
+  let shown = 0;
+  outer: for (const topic of order) {
+    const block = [`**${TOPIC_HEADINGS[topic] ?? '✨ Other'}**`];
+    for (const title of groups.get(topic)) {
+      const next = [...lines, ...block, `• ${title}`].join('\n');
+      if (next.length > DESC_LIMIT) { if (block.length > 1) lines.push(...block); break outer; }
+      block.push(`• ${title}`);
+      shown++;
+    }
+    lines.push(...block, '');
+  }
+  let desc = lines.join('\n').trim();
+  const hidden = release.entries.length - shown;
+  desc += `\n\n${hidden > 0 ? `…and ${hidden} more. ` : ''}[Read the full notes](${release.url})`;
+
+  return [[{
+    title: `Bloo v${release.version}`, url: release.url, color: COLOR,
+    description: desc,
+    footer: { text: `Build ${release.build} · ${release.entries.length} change${release.entries.length === 1 ? '' : 's'}` },
+    timestamp: new Date(release.publishedAt).toISOString(),
+  }]];
 }
 
 async function send(url, body) {

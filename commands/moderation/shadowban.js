@@ -32,7 +32,7 @@ function parseId(arg) {
 
 export default {
   name: 'shadowban',
-  aliases: ['sb'],
+  aliases: [], // not "sb": that's b!starboard, and a two-letter slip shouldn't shadowban anyone
   description: 'Silently block a user from running commands, no denial message, their command messages just vanish. Bot owner only.',
   usage: '{prefix}shadowban <@user|id> [reason] | {prefix}shadowban remove <@user|id> | {prefix}shadowban list',
   category: 'moderation',

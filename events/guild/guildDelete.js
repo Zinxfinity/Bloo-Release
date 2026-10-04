@@ -1,6 +1,6 @@
 import { Events } from '@fluxerjs/core';
-import { purgeGuild } from '../../handlers/echoSystem.js';
 import { pruneGuildFeeds } from '../../handlers/webhookPoller.js';
+import { recordLeave } from '../../handlers/serverInsights.js';
 import logger from '../../utils/logger.js';
 
 // Fires when the bot leaves (or is removed from) a guild. The one reliable
@@ -16,11 +16,13 @@ export default {
   async execute(client, guild) {
     const guildId = guild?.id ?? guild;
     if (!guildId) return;
+    // An outage marks a server unavailable; Bloo hasn't actually left it.
+    if (guild?.unavailable === true) return;
+    // First, while the server's settings are still there to look at.
     try {
-      purgeGuild(guildId);
-      logger.info(`[GUILD] Left guild ${guildId}, echo channels/subscriptions purged.`);
+      recordLeave(guildId, guild?.name);
     } catch (err) {
-      logger.warn(`[GUILD] Echo cleanup failed for ${guildId}: ${err.message}`);
+      logger.warn(`[GUILD] Leave record failed for ${guildId}: ${err.message}`);
     }
     try {
       pruneGuildFeeds(guildId);

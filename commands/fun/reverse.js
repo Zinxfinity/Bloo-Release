@@ -16,7 +16,7 @@ function parseUserId(arg) {
 
 export default {
   name: 'reverse',
-  aliases: ['backwards', 'flip'],
+  aliases: ['backwards'], // not "flip": that's b!coinflip
   description: 'Reverse text, or reverse someone\'s last message.',
   usage: '{prefix}reverse <text or @user>',
   category: 'fun',

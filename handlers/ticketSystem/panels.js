@@ -6,8 +6,7 @@ import { COLORS } from '../../config/embeds.js';
 import { stmts } from './schema.js';
 import { getTicketConfig, getTicketOptions } from './config.js';
 import { openTicket, closeTicketWithNotice } from './lifecycle.js';
-import { resolveAccess } from '../commandPermissions.js';
-import { Permissions } from '../../config/guildPermissions.js';
+import { canCloseTicket } from './permissions.js';
 import { sameEmoji } from '../reactionRoles.js';
 
 // ticket_options.emoji is stored as bare "name:id" (handleTicketReaction's
@@ -170,9 +169,7 @@ export async function handleCloseReaction(client, guildId, channelId, key, userI
   const ticket = stmts.getCaseByChannel.get(channelId);
   if (!ticket || ticket.guild_id !== guildId || ticket.status !== 'open') return false;
 
-  const isOwner = ticket.user_id === userId;
-  const isMod   = isOwner || await resolveAccess(client, guildId, userId, 'close', Permissions.KICK_MEMBERS);
-  if (!isMod) return false;
+  if (!await canCloseTicket(client, guildId, ticket, userId)) return false;
 
   await closeTicketWithNotice(client, guildId, ticket, reactingUser, 'Closed via reaction');
   return true;

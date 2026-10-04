@@ -13,7 +13,6 @@ let _recordActivity   = null;
 let _handleAppealDM   = null;
 let _handleConfessDM  = null;
 let _handleDmResponse = null;
-let _relayEcho        = null;
 let _auditLinks       = null;
 
 export default {
@@ -86,15 +85,6 @@ export default {
       await handleMessage(client, message);
       return;
     }
-
-    // ── Cross-server echo relay (light, publisher-channel check is a cheap
-    // indexed lookup, real work only happens for the rare message that's
-    // actually posted in a registered publisher channel) ───────────────────
-    if (!_relayEcho) {
-      const mod = await import('../../handlers/echoSystem.js').catch(() => null);
-      _relayEcho = mod?.relayEcho ?? (() => {});
-    }
-    await resilience.runLight('echoSystem.relayEcho', () => _relayEcho(client, message));
 
     // ── Ticket transcript capture (light, part of ticketSystem, not the
     // hot path itself) ─────────────────────────────────────────────────────

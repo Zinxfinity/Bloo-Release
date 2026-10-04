@@ -27,6 +27,7 @@ let _invalidateGuild  = null;
 let _isChannelAllowed = null;
 let _reportError      = null;
 let _getTag           = null;
+let _recordCommand    = null;
 let _isEconomyReleased = null;
 let _isEconomyAdmin    = null;
 let _ecoComingSoonMsg  = null;
@@ -269,6 +270,12 @@ export async function handleMessage(client, message) {
     return;
   }
 
+  // ── Beta: testers only, invisible to everyone else ─────────────────────────
+  if (command.beta) {
+    const { isBetaTester } = await import('./betaTesters.js');
+    if (!await isBetaTester(userId)) return;
+  }
+
   // ── Gate 0: Quarantine ────────────────────────────────────────────────────
   if (command.quarantined) {
     await safeReply(message, {
@@ -310,7 +317,7 @@ export async function handleMessage(client, message) {
     }
 
     // Fails secure, any fetch failure or missing data results in denial.
-    // internalAccess commands (ticket, tag, echo, ...) resolve permission per
+    // internalAccess commands (ticket, tag, ...) resolve permission per
     // subcommand themselves with the same override, so only the disabled
     // check above applies here; otherwise an override meant for their staff
     // subcommands would also lock out the public ones (e.g. !ticket close).
@@ -392,7 +399,7 @@ export async function handleMessage(client, message) {
   // A channel argument pointing at another server would let staff here post
   // into, read from, or configure that server's channels through the bot.
   // Exempt: commands that deliberately reference other servers
-  // (allowForeignChannels, e.g. !echo subscribe) and the bot owner.
+  // (allowForeignChannels) and the bot owner.
   await loadStaffSystem();
   if (!command.allowForeignChannels && !_isBotOwner(userId) && await findForeignChannelArg(client, guildId, args)) {
     await safeReply(message, { embeds: [Embed.denied('That channel is not in this server.').toJSON()] });
@@ -400,6 +407,8 @@ export async function handleMessage(client, message) {
   }
 
   // ── Execute ───────────────────────────────────────────────────────────────
+  _recordCommand ??= (await import('./serverInsights.js').catch(() => null))?.recordCommand ?? (() => {});
+  _recordCommand(guildId, command.name);
   try {
     await command.execute({ message, args, prefix, client });
     await safeDelete(message);

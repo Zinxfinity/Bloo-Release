@@ -6,6 +6,7 @@ import { hasBooted } from '../client/ready.js';
 
 // prefix supplied explicitly, guild_settings' SQL-level DEFAULT 'b!'
 // (db.js) is static and can never reflect a changed PREFIX env var.
+const isKnown = db.prepare(`SELECT 1 FROM guild_settings WHERE guild_id = ?`);
 const ensureGuild = db.prepare(`
   INSERT OR IGNORE INTO guild_settings (guild_id, prefix, updated_at) VALUES (?, ?, unixepoch())
 `);
@@ -50,8 +51,25 @@ export default {
 
     logger.info(`[GUILD] Joined guild: ${guildName ?? 'Unknown'} (${guildId})`);
 
+    // Checked before ensureGuild records it: a server Bloo already knows (an
+    // outage re-announcing it, or a re-add) never gets the welcome again.
+    const firstTime = !isKnown.get(guildId);
     ensureGuild.run(guildId, process.env.PREFIX ?? 'b!');
 
     if (ownerId) setGuildOwner(guildId, ownerId);
+
+    // For Developer → Server Insights: when Bloo arrived, so a later leave
+    // knows how long it stayed.
+    import('../../handlers/serverInsights.js')
+      .then(m => m.recordJoin(guildId, guildName))
+      .catch(err => logger.warn('[INSIGHTS] join record failed:', err.message));
+
+    // One welcome DM to the owner, the first time Bloo is ever added here.
+    // Not awaited: it waits a few seconds before sending.
+    if (ownerId && firstTime) {
+      import('../../handlers/onboarding.js')
+        .then(m => m.sendOnboarding(client, guildId, guildName, ownerId))
+        .catch(err => logger.warn('[ONBOARD] failed:', err.message));
+    }
   },
 };

@@ -9,15 +9,27 @@ import {
   setRoleReward, removeRoleReward, getRoleRewards,
   softPrune, hardPrune, levelProgress,
   getLevelName, getLevelDefinitions, getStreak, getStreakSettings,
+  adjustXp, syncRewardRoles, rewardRolesForXp, MAX_XP,
 } from '../../handlers/xpSystem.js';
+import { logAction } from '../../handlers/modLog.js';
+import logger from '../../utils/logger.js';
+import { isBotOwner, isRealOwner } from '../../handlers/staffSystem.js';
+
+// Whether someone can hand out a role themselves. The server owner and bot
+// owners always can; everyone else needs a highest role above it.
+async function canHandOut(client, guildId, userId, roleId) {
+  if (isBotOwner(userId) || await isRealOwner(guildId, userId)) return true;
+  return memberCanAssignRoleLive(client, guildId, userId, roleId);
+}
 import { renderRankCard } from '../../handlers/profileCard.js';
+import { getCardProfile } from '../../handlers/cardBackgrounds.js';
 import { parseUserMention } from '@fluxerjs/core';
 
 export default {
   name: 'xp',
   aliases: ['level', 'lvl'],
   description: 'XP system management.',
-  usage: '{prefix}xp [config|leaderboard|rank|reset|prune|rolereward]',
+  usage: '{prefix}xp [config|leaderboard|rank|reset|prune|rolereward]\n{prefix}xp <give|take|set> @user <amount>\n{prefix}xp syncroles',
   requiredPermission: null,
   internalAccess: true, // subcommands gate themselves via resolveAccess
 
@@ -35,8 +47,10 @@ export default {
     if (sub === 'reset')       return handleReset(client, message, args.slice(1), guildId, executorId, prefix);
     if (sub === 'prune')       return handlePrune(client, message, args.slice(1), guildId, executorId, prefix);
     if (sub === 'rolereward' || sub === 'rr') return handleRoleReward(client, message, args.slice(1), guildId, executorId, prefix);
+    if (sub === 'give' || sub === 'take' || sub === 'set') return handleAdjust(client, message, sub, args.slice(1), guildId, executorId, prefix);
+    if (sub === 'syncroles')   return handleSyncRoles(client, message, guildId, executorId);
 
-    await message.reply({ embeds: [Embed.warning(`Unknown subcommand. Use \`${prefix}xp rank|leaderboard|config|reset|prune|rolereward\``).toJSON()] });
+    await message.reply({ embeds: [Embed.warning(`Unknown subcommand. Use \`${prefix}xp rank|leaderboard|config|reset|prune|rolereward|give|take|set|syncroles\``).toJSON()] });
   },
 };
 
@@ -52,7 +66,7 @@ async function handleRank(client, message, args, guildId, executorId, prefix) {
 
   const rank      = getUserRank(guildId, targetId) ?? 0;
   const xp        = userData.xp;
-  const { level, next, progress } = levelProgress(guildId, xp);
+  const { level, next, nextLevel, progress } = levelProgress(guildId, xp);
   const levelName = getLevelName(guildId, level);
 
   const targetUser = await client.rest.get(`/users/${targetId}`).catch(() => null);
@@ -61,9 +75,15 @@ async function handleRank(client, message, args, guildId, executorId, prefix) {
     ? `https://fluxerusercontent.com/avatars/${targetId}/${targetUser.avatar}.png?size=128`
     : null;
 
+  const card = getCardProfile(targetId); // theme and approved background, from b!card
   const cardBuffer = await renderRankCard({
+    theme: card.theme, background: card.background, supporter: card.supporter, contributor: card.contributor,
     username, avatarUrl, xp, level, rank, levelName,
-    xpForNextLevel: next ?? xp, // top of a custom ladder
+    xpForNextLevel: next ?? xp,
+    maxed: next == null, // top of a custom ladder
+    // "27% to 🫖 Tea Lover": the server's name for the next level, or its number.
+    nextLabel: next == null ? null : (getLevelName(guildId, nextLevel) ?? `Level ${nextLevel}`),
+    fallbackName: userData.display_name,
     xpProgress: progress,
   });
 
@@ -250,7 +270,7 @@ async function handleRoleReward(client, message, args, guildId, executorId, pref
     }
     // Level-ups hand this role out automatically, so whoever sets it up has
     // to be able to give it themselves.
-    if (!await memberCanAssignRoleLive(client, guildId, executorId, roleId)) {
+    if (!await canHandOut(client, guildId, executorId, roleId)) {
       return message.reply({ embeds: [Embed.denied('That role is at or above your highest role, so you can\'t make it a reward.').toJSON()] });
     }
     setRoleReward(guildId, level, roleId);
@@ -277,4 +297,82 @@ async function handleRoleReward(client, message, args, guildId, executorId, pref
   }
   const lines = rewards.map(r => `Level **${r.level}** → <@&${r.role_id}>`);
   await message.reply({ embeds: [Embed.info(lines.join('\n'), 'Role Rewards').toJSON()] });
+}
+
+// ─── give / take / set ────────────────────────────────────────────────────────
+// Manage Roles, because the new level hands out (or takes away) level roles.
+// Give/set also refuse when that would grant a reward role the moderator
+// couldn't give by hand, so XP can't be used to get around the role order.
+async function handleAdjust(client, message, mode, args, guildId, executorId, prefix) {
+  if (!await resolveAccess(client, guildId, executorId, 'xp', Permissions.MANAGE_ROLES)) {
+    return message.reply({ embeds: [Embed.denied('Manage Roles or higher required.').toJSON()] });
+  }
+  const usage = () => message.reply({ embeds: [Embed.warning(`Usage: \`${prefix}xp ${mode} @user <amount>\``).toJSON()] });
+  const targetId = args[0] ? (parseUserMention(args[0]) ?? args[0].replace(/\D/g, '')) : '';
+  const amount   = Number(String(args[1] ?? '').replace(/[,_]/g, ''));
+  if (!/^\d{15,22}$/.test(targetId) || !Number.isInteger(amount)) return usage();
+  if (amount < 0 || amount > MAX_XP || (mode !== 'set' && amount === 0)) {
+    return message.reply({ embeds: [Embed.warning(`The amount must be a whole number from ${mode === 'set' ? 0 : 1} to ${MAX_XP.toLocaleString()}.`).toJSON()] });
+  }
+
+  const before = getUserXp(guildId, targetId)?.xp ?? 0;
+  const after  = mode === 'set' ? amount : mode === 'take' ? before - amount : before + amount;
+  if (mode !== 'take') {
+    for (const r of rewardRolesForXp(guildId, after)) {
+      if (!await canHandOut(client, guildId, executorId, r.role_id)) {
+        return message.reply({ embeds: [Embed.denied(`That would give <@${targetId}> the level ${r.level} role <@&${r.role_id}>, which is at or above your highest role.`).toJSON()] });
+      }
+    }
+  }
+
+  const res  = await adjustXp(client, guildId, targetId, mode, amount);
+  const verb = { give: `Gave **${amount.toLocaleString()} XP** to`, take: `Took **${amount.toLocaleString()} XP** from`, set: 'Set the XP of' }[mode];
+  const levelText = res.level === res.oldLevel ? `level ${res.level}` : `level ${res.oldLevel} → **${res.level}**`;
+  const lines = [
+    `${verb} <@${targetId}>${mode === 'set' ? ` to **${res.xp.toLocaleString()} XP**` : ''}.`,
+    `${res.before.toLocaleString()} → ${res.xp.toLocaleString()} XP, ${levelText}.`,
+  ];
+  if (res.roles && (res.roles.given || res.roles.removed)) lines.push(`Level roles: ${res.roles.given} given, ${res.roles.removed} removed.`);
+  if (res.roles?.failed) lines.push(`⚠️ ${res.roles.failed} level role change(s) failed. Bloo's role must be above the level roles, with Manage Roles.`);
+
+  await logAction({
+    client, guildId, action: 'XP Changed', targetId, executorId,
+    reason: `${mode} ${amount} XP: ${res.before} → ${res.xp} (level ${res.oldLevel} → ${res.level})`,
+  }).catch(() => {});
+  await message.reply({ embeds: [Embed.success(lines.join('\n')).toJSON()] });
+}
+
+// ─── syncroles ────────────────────────────────────────────────────────────────
+// Gives everyone the level roles their XP has earned and takes away ones it
+// hasn't, e.g. members who passed a level before its role was set up.
+async function handleSyncRoles(client, message, guildId, executorId) {
+  if (!await resolveAccess(client, guildId, executorId, 'xp', Permissions.MANAGE_ROLES)) {
+    return message.reply({ embeds: [Embed.denied('Manage Roles or higher required.').toJSON()] });
+  }
+  for (const r of getRoleRewards(guildId)) {
+    if (!await canHandOut(client, guildId, executorId, r.role_id)) {
+      return message.reply({ embeds: [Embed.denied(`The level ${r.level} role <@&${r.role_id}> is at or above your highest role, so you can't sync level roles.`).toJSON()] });
+    }
+  }
+
+  const status   = await message.reply({ embeds: [Embed.info('Checking members\' level roles…').toJSON()] });
+  const show     = embed => status?.edit
+    ? status.edit({ embeds: [embed.toJSON()] }).catch(() => message.reply({ embeds: [embed.toJSON()] }))
+    : message.reply({ embeds: [embed.toJSON()] });
+  const progress = res => status?.edit?.({ embeds: [Embed.info(`Checked ${res.checked} of ${res.total} members…`).toJSON()] }).catch(() => {});
+  const res = await syncRewardRoles(client, guildId, progress);
+
+  if (res.busy)      return show(Embed.warning('A role sync is already running in this server.'));
+  if (res.off)       return show(Embed.warning('Level roles are turned off in this server\'s XP settings.'));
+  if (res.noRewards) return show(Embed.info('This server has no level roles set up.'));
+
+  const lines = [
+    `Checked **${res.checked}** member(s) at or above the first reward level.`,
+    `**${res.changed}** needed changes: ${res.given} role(s) given, ${res.removed} removed.`,
+  ];
+  if (res.left)   lines.push(`${res.left} member(s) have left the server and were skipped.`);
+  if (res.failed) lines.push(`⚠️ ${res.failed} change(s) failed. Bloo's role must be above the level roles, with Manage Roles.`);
+  // Not a mod log case: those need one target member, and this covers everyone.
+  logger.info(`[XP] syncroles in ${guildId} by ${executorId}: ${res.checked} checked, ${res.changed} changed (+${res.given} / -${res.removed}), ${res.failed} failed`);
+  await show(res.failed ? Embed.warning(lines.join('\n')) : Embed.success(lines.join('\n')));
 }

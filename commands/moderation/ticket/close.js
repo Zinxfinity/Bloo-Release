@@ -6,7 +6,7 @@ import { Embed } from '../../../config/embeds.js';
 import { resolveAccess } from '../../../handlers/commandPermissions.js';
 import { Permissions } from '../../../config/guildPermissions.js';
 import {
-  getTicketByChannel, getTicketByCase, closeTicketWithNotice,
+  getTicketByChannel, getTicketByCase, closeTicketWithNotice, canCloseTicket, closeRequirementText,
 } from '../../../handlers/ticketSystem/index.js';
 
 export async function handleClose({ message, client, prefix, guildId, rest }) {
@@ -37,13 +37,12 @@ export async function handleClose({ message, client, prefix, guildId, rest }) {
     return;
   }
 
-  const isOwner = ticket.user_id === message.author.id;
-
-  if (!isOwner && !isMod) {
+  if (!isMod && !await canCloseTicket(client, guildId, ticket, message.author.id)) {
     await message.reply({
-      embeds: [Embed.denied('Ticket Owner or Mod+')
-        .setDescription('Only the person who opened this ticket, or a **Mod+**, can close it.')
+      embeds: [Embed.denied("Can't close this ticket")
+        .setDescription(closeRequirementText(guildId, ticket))
         .toJSON()],
+      allowedMentions: { parse: [] },
     });
     return;
   }
