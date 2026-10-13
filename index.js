@@ -1,4 +1,5 @@
 import 'dotenv/config';
+import './config/envClean.js';
 import { Client } from '@fluxerjs/core';
 import logger from './utils/logger.js';
 import { loadCommands } from './handlers/commandLoader.js';

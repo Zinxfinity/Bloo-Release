@@ -131,6 +131,11 @@ for (const col of [
   // deleted, replacing the previous hardcoded 10s. Seconds, not ms, to
   // match how it's surfaced in commands/dashboard.
   `ALTER TABLE ticket_config ADD COLUMN close_delay_seconds INTEGER NOT NULL DEFAULT 10`,
+  // What a ticket's opener can do beyond reading and talking, comma
+  // separated (handlers/ticketSystem/permissions.js TICKET_PERMS). Attach,
+  // embed and react by default: a screenshot is usually the first thing
+  // someone wants to send in a support ticket.
+  `ALTER TABLE ticket_config ADD COLUMN opener_perms TEXT NOT NULL DEFAULT 'attach,embed,react'`,
   // When set, this closed ticket's channel is due for deletion at this unix
   // timestamp. A plain in-memory setTimeout doesn't survive a bot restart
   // within the delay window, the channel would just never get deleted,

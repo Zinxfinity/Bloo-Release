@@ -24,6 +24,14 @@ export default {
     } catch (err) {
       logger.warn(`[GUILD] Leave record failed for ${guildId}: ${err.message}`);
     }
+    // A welcome card image the owner uploaded goes when Bloo does.
+    try {
+      const { removeWelcomeUpload, removeServerCache } = await import('../../handlers/welcomeBackgrounds.js');
+      removeServerCache(guildId);
+      if (removeWelcomeUpload(guildId)) logger.info(`[GUILD] Left guild ${guildId}, welcome card image deleted.`);
+    } catch (err) {
+      logger.warn(`[GUILD] Welcome image cleanup failed for ${guildId}: ${err.message}`);
+    }
     try {
       pruneGuildFeeds(guildId);
       logger.info(`[GUILD] Left guild ${guildId}, RSS/webhook feeds purged.`);

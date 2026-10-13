@@ -51,7 +51,14 @@ const q = {
 
 const botId = () => process.env.FLUXER_CLIENT_ID || null;
 export const votingConfigured = () => !!(process.env.FLUXERLIST_API_KEY && botId());
-export const voteUrl = () => (botId() ? `https://fluxerlist.com/bots/${botId()}` : null);
+// The listing's short link when one is set (official Bloo: /bots/bloo), else
+// the ID-based link, which works for any bot.
+const OFFICIAL_BOT_ID = '1472435781846110256';
+export const voteUrl = () => {
+  if (process.env.FLUXERLIST_BOT_URL) return process.env.FLUXERLIST_BOT_URL.trim();
+  if (botId() === OFFICIAL_BOT_ID) return 'https://fluxerlist.com/bots/bloo';
+  return botId() ? `https://fluxerlist.com/bots/${botId()}` : null;
+};
 
 async function api(path) {
   const res = await fetch(API + path, {

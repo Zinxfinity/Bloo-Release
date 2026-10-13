@@ -30,6 +30,12 @@ export default {
     // permanent no-op. hasBooted() (events/client/ready.js) is set
     // synchronously before any of that queued flush can reach here, so it
     // actually distinguishes routine hydration from a genuine later join.
+    //
+    // Since @fluxerjs/core 3.3 the startup backfill arrives as
+    // Events.GuildAvailable instead, and GuildCreate only means "joined after
+    // Ready" (confirmed on the dev bot: no startup GuildCreates). This stays
+    // as a safety net in case that ever changes; ready.js's seedGuilds()
+    // registers every startup guild either way.
     if (!hasBooted()) {
       ensureGuild.run(guildId, process.env.PREFIX ?? 'b!');
       return;

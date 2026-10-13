@@ -41,6 +41,7 @@
 // ============================================================
 
 import 'dotenv/config';
+import './config/envClean.js';
 import { readFileSync, writeFileSync, existsSync, statSync, statfsSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';

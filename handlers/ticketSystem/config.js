@@ -22,7 +22,7 @@ export function setTicketField(guildId, field, value) {
   const allowed = [
     'channel_id','panel_message_id','support_role_id',
     'icon_url','banner_url','title','description','category_id','color',
-    'close_emoji','close_delay_seconds',
+    'close_emoji','close_delay_seconds','opener_perms',
   ];
   if (!allowed.includes(field)) throw new Error(`Unknown ticket config field: ${field}`);
   stmts.ensureConfig.run(guildId);

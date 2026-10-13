@@ -115,7 +115,11 @@ async function textParts(loadImage, text) {
       const img = await emojiImage(loadImage, piece);
       if (img) parts.push({ img });
     } else {
-      parts.push({ text: piece });
+      // Split between double O's, so each is drawn on its own: Cinzel
+      // Decorative (the Arcane Tome theme) otherwise joins "OO" into one
+      // ornament, and "Bloo" drew as "BLꝏ". (A zero-width non-joiner
+      // didn't stop it.) Looks the same in every other font.
+      for (const run of piece.split(/(?<=[Oo])(?=[Oo])/)) if (run) parts.push({ text: run });
     }
   }
   return parts;
@@ -152,6 +156,19 @@ function drawParts(ctx, parts, x, y, size, maxW) {
 // characters stay: emoji need them (the joiners in family and profession
 // emoji, the tags that make the England flag). A name with nothing visible
 // left uses the fallback.
+// Fluxer serves an animated avatar, icon or banner as an animated PNG when
+// asked for .png, which the canvas library can't read (it drew as coloured
+// stripes). animated=false gets the still image. Only for drawing: chat
+// embeds can keep the animated one.
+export function stillImageUrl(url) {
+  if (!url || !/^https:\/\/fluxerusercontent\.com\//.test(url)) return url;
+  try {
+    const u = new URL(url.replace(/\.(webp|jpg|gif)(?=\?|$)/, '.png'));
+    u.searchParams.set('animated', 'false');
+    return u.toString();
+  } catch { return url; }
+}
+
 function visibleName(name, fallback) {
   const clean = v => String(v ?? '').replace(/[\p{Cn}\p{Co}\p{Cc}]/gu, '').trim();
   const visible = v => /[^\p{Cf}\s]/u.test(v);
@@ -221,7 +238,11 @@ function glowDot(ctx, x, y, r, color, alpha) {
 // fonts, colours and drawing for the background, frame, avatar ring, badges
 // and bar. A theme's font list is [family, weight]; FALLBACK covers anything
 // the family can't draw.
-const W = 760, H = 200, PAD = 28;
+// W and H are the rank card's size. Welcome cards borrow the theme
+// backgrounds at their own size by swapping these for the (synchronous)
+// background call only; see renderWelcomeCard.
+let W = 760, H = 200;
+const PAD = 28;
 
 const barRound = (ctx, x, y, w, h, p, t) => {
   roundRectPath(ctx, x, y, w, h, h / 2);
@@ -653,7 +674,7 @@ export async function renderRankCard(data) {
   // downloads the avatar once.
   let img = data.avatarImage ?? null;
   if (!img && avatarUrl) {
-    const pngUrl = avatarUrl.replace(/\.(webp|jpg|gif)(?=\?|$)/, '.png');
+    const pngUrl = stillImageUrl(avatarUrl);
     img = await loadImage(pngUrl).catch(() => loadImage(avatarUrl).catch(() => null));
     if (!img) logger.debug(`[CARD] Avatar didn't load: ${pngUrl}`);
   }
@@ -770,6 +791,177 @@ export async function renderRankCard(data) {
 // Every theme side by side, each labelled with its name and the command to
 // pick it. `data` is the same as renderRankCard's, minus theme and background
 // (the gallery always shows the themes' own backgrounds).
+// ─── Welcome cards ────────────────────────────────────────────────────────────
+// The member's avatar in the middle with up to two lines of text under it,
+// on one of the rank card themes. The server picks the theme; vote-only
+// themes stay a perk for voters' own cards.
+export const WELCOME_CARD_THEMES = Object.fromEntries(Object.entries(THEMES).filter(([, t]) => !t.voteOnly).map(([k, t]) => [k, t.label]));
+const WC_W = 900, WC_H = 320;
+
+const HEX = /^#[0-9a-f]{6}$/i;
+const hexRgba = (hex, a) => { const n = parseInt(hex.slice(1), 16); return `rgba(${n >> 16}, ${(n >> 8) & 255}, ${n & 255}, ${a})`; };
+
+// A server's own colours over a theme: the accent recolours the avatar ring
+// and glow, the other two the lines of text. Anything unset keeps the theme's.
+function withServerColors(t, colors = {}) {
+  const accent = HEX.test(colors.accent ?? '') ? colors.accent : null;
+  const title = HEX.test(colors.title ?? '') ? colors.title : null;
+  const subtitle = HEX.test(colors.subtitle ?? '') ? colors.subtitle : null;
+  if (!accent && !title && !subtitle) return t;
+  return {
+    ...t,
+    colors: {
+      ...t.colors,
+      ...(accent ? { ring: accent, accent, letter: accent, trackLine: accent } : {}),
+      ...(title ? { text: title } : {}),
+      ...(subtitle ? { muted: subtitle } : {}),
+    },
+    glow: {
+      ...t.glow,
+      ...(accent ? { ring: hexRgba(accent, 0.55) } : {}),
+      ...(accent && t.glow?.name ? { name: hexRgba(accent, 0.3) } : {}),
+    },
+  };
+}
+
+/**
+ * @param {{ theme?: string, avatarUrl?: string|null, name: string, title?: string, subtitle?: string,
+ *           colors?: { accent?: string, title?: string, subtitle?: string },
+ *           background?: { src: string|Buffer, blur?: boolean } }} data
+ * @returns {Promise<Buffer|null>}
+ */
+export async function renderWelcomeCard(data) {
+  const cv = await getCanvas();
+  if (!cv) return null;
+  const { createCanvas, loadImage } = cv;
+  const t = withServerColors(WELCOME_CARD_THEMES[data.theme] ? THEMES[data.theme] : THEMES[DEFAULT_RANK_CARD_THEME], data.colors);
+  const c = t.colors;
+  const name = visibleName(data.name, 'New member');
+
+  const canvas = createCanvas(WC_W, WC_H);
+  const ctx = canvas.getContext('2d');
+  // Synchronous, so no other card can be drawn while W and H are swapped.
+  const [w0, h0] = [W, H];
+  W = WC_W; H = WC_H;
+  try { t.background(ctx); } finally { W = w0; H = h0; }
+
+  // A server background (an upload, or its banner or icon, blurred) over the
+  // theme, under a tint that's strongest where the text sits.
+  // The first that loads of the background and its fallback (a banner that
+  // isn't there falls back to the icon).
+  let bgUsed = null, bg = null;
+  for (const option of [data.background, data.background?.fallback]) {
+    if (!option?.src) continue;
+    bg = await loadImage(option.src).catch(() => null);
+    if (bg) { bgUsed = option; break; }
+  }
+  if (bg) {
+    data = { ...data, background: bgUsed };
+    {
+      const r = t.avatarShape === 'square' ? 0 : 16;
+      ctx.save();
+      roundRectPath(ctx, 0, 0, WC_W, WC_H, r);
+      ctx.clip();
+      const scale = Math.max(WC_W / bg.width, WC_H / bg.height);
+      const bw = bg.width * scale, bh = bg.height * scale, bx = (WC_W - bw) / 2, by = (WC_H - bh) / 2;
+      if (data.background.blur) {
+        // Shrink then stretch back with smoothing: a soft colour wash, so a
+        // small icon or a busy banner still works behind the text.
+        // Cropped to the card's shape first (no stretching), then enlarged in
+        // two steps so it comes out smooth rather than blocky.
+        const TW = 36, TH = 13;
+        const tiny = createCanvas(TW, TH), tc = tiny.getContext('2d');
+        const ts = Math.max(TW / bg.width, TH / bg.height);
+        tc.drawImage(bg, (TW - bg.width * ts) / 2, (TH - bg.height * ts) / 2, bg.width * ts, bg.height * ts);
+        const mid = createCanvas(TW * 8, TH * 8), mc = mid.getContext('2d');
+        mc.imageSmoothingQuality = 'high';
+        mc.drawImage(tiny, 0, 0, TW * 8, TH * 8);
+        ctx.imageSmoothingQuality = 'high';
+        ctx.drawImage(mid, 0, 0, WC_W, WC_H);
+      } else {
+        ctx.drawImage(bg, bx, by, bw, bh);
+      }
+      // An uploaded image can be busy, so it's darkened more than a blurred one.
+      const base = t.light ? '250, 247, 240' : '8, 10, 14';
+      const k = data.background.blur ? 0 : 0.12;
+      const tint = ctx.createLinearGradient(0, 0, 0, WC_H);
+      tint.addColorStop(0, `rgba(${base}, ${(t.light ? 0.45 : 0.3) + k})`);
+      tint.addColorStop(0.55, `rgba(${base}, ${(t.light ? 0.7 : 0.55) + k})`);
+      tint.addColorStop(1, `rgba(${base}, ${Math.min(0.92, (t.light ? 0.85 : 0.78) + k)})`);
+      ctx.fillStyle = tint;
+      ctx.fillRect(0, 0, WC_W, WC_H);
+      ctx.restore();
+      roundRectPath(ctx, 1, 1, WC_W - 2, WC_H - 2, r);
+      ctx.strokeStyle = c.accent;
+      ctx.globalAlpha = 0.6;
+      ctx.lineWidth = 2;
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+    }
+  }
+
+  // Avatar, centred near the top, in the theme's ring.
+  const AV = 150, CX = WC_W / 2, CY = 26 + AV / 2, R = AV / 2;
+  t.ring(ctx, CX, CY, R - 4, t);
+  let img = null;
+  if (data.avatarUrl) {
+    const pngUrl = stillImageUrl(data.avatarUrl);
+    img = await loadImage(pngUrl).catch(() => loadImage(data.avatarUrl).catch(() => null));
+  }
+  const ir = R - 6, ix = CX - ir, iy = CY - ir;
+  ctx.save();
+  if (t.avatarShape === 'square') roundRectPath(ctx, ix, iy, ir * 2, ir * 2, 0);
+  else { ctx.beginPath(); ctx.arc(CX, CY, ir, 0, Math.PI * 2); }
+  ctx.clip();
+  if (img && t.pixelate) {
+    const small = createCanvas(t.pixelate, t.pixelate);
+    small.getContext('2d').drawImage(img, 0, 0, t.pixelate, t.pixelate);
+    ctx.imageSmoothingEnabled = false;
+    ctx.drawImage(small, ix, iy, ir * 2, ir * 2);
+    ctx.imageSmoothingEnabled = true;
+  } else if (img) {
+    ctx.drawImage(img, ix, iy, ir * 2, ir * 2);
+  } else {
+    ctx.fillStyle = c.avatarBg;
+    ctx.fillRect(ix, iy, ir * 2, ir * 2);
+    const letter = [...name].find(ch => /\p{L}|\p{N}/u.test(ch))?.toUpperCase() ?? '?';
+    const lf = roleFont(t, 'name', letter, 64);
+    ctx.fillStyle = c.letter ?? c.accent;
+    ctx.font = lf.font;
+    ctx.textAlign = 'center';
+    ctx.fillText(letter, CX, CY + lf.size * 0.36);
+    ctx.textAlign = 'left';
+  }
+  ctx.restore();
+
+  // Up to two lines, centred. Either can be left out.
+  const title = String(data.title ?? '').trim(), subtitle = String(data.subtitle ?? '').trim();
+  const maxW = WC_W - 90;
+  const line = async (text, role, size, color, glow, y) => {
+    const parts = await textParts(loadImage, text);
+    // Shrink a long line to fit (down to 70%) before cutting it short.
+    let f = roleFont(t, role, text, size);
+    ctx.font = f.font;
+    const natural = partsWidth(ctx, parts, f.size);
+    if (natural > maxW) {
+      f = roleFont(t, role, text, Math.max(Math.floor(size * 0.7), Math.floor(size * maxW / natural)));
+      ctx.font = f.font;
+    }
+    const w = Math.min(partsWidth(ctx, parts, f.size), maxW);
+    ctx.fillStyle = color;
+    withGlow(ctx, glow, 12, () => drawParts(ctx, parts, CX - w / 2, y, f.size, maxW));
+  };
+  // Cards show at about half size in chat, so the text runs large; a lone
+  // second line gets bigger still.
+  const titleSize = Math.round((t.sizes?.name ?? 30) * 1.45);
+  const subSize = Math.round((t.sizes?.small ?? 15) * (title ? 1.75 : 2.1));
+  const top = CY + R + 18;
+  if (title) await line(title, 'name', titleSize, c.text, t.glow?.name, top + titleSize * 0.9);
+  if (subtitle) await line(subtitle, 'small', subSize, c.muted, null, title ? top + titleSize * 0.9 + subSize * 1.55 : top + subSize * 1.2);
+
+  return canvas.toBuffer('image/png');
+}
+
 export async function renderThemeGallery(data) {
   const cv = await getCanvas();
   if (!cv) return null;
@@ -777,7 +969,7 @@ export async function renderThemeGallery(data) {
 
   let avatarImage = null;
   if (data.avatarUrl) {
-    const pngUrl = data.avatarUrl.replace(/\.(webp|jpg|gif)(?=\?|$)/, '.png');
+    const pngUrl = stillImageUrl(data.avatarUrl);
     avatarImage = await loadImage(pngUrl).catch(() => loadImage(data.avatarUrl).catch(() => null));
   }
 

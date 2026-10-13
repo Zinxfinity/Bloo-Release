@@ -50,6 +50,24 @@ export function ensureWelcomeSchema(db) {
     `ALTER TABLE welcome_config ADD COLUMN goodbye_color TEXT NOT NULL DEFAULT '#ED4245'`,
     // setField() below always touches this; the live table predates it.
     `ALTER TABLE welcome_config ADD COLUMN updated_at INTEGER NOT NULL DEFAULT 0`,
+    // Welcome card: an image with the member's avatar and two optional lines.
+    `ALTER TABLE welcome_config ADD COLUMN welcome_card INTEGER NOT NULL DEFAULT 0`,
+    `ALTER TABLE welcome_config ADD COLUMN card_theme TEXT NOT NULL DEFAULT 'bloo'`,
+    `ALTER TABLE welcome_config ADD COLUMN card_title TEXT NOT NULL DEFAULT 'Welcome, {name}!'`,
+    `ALTER TABLE welcome_config ADD COLUMN card_subtitle TEXT NOT NULL DEFAULT 'You are member #{count} of {server}'`,
+    // Custom cards (handlers/welcomeBackgrounds.js): theme | server | custom,
+    // optional colours over the theme, and who uploaded the custom image.
+    `ALTER TABLE welcome_config ADD COLUMN card_background TEXT NOT NULL DEFAULT 'theme'`,
+    `ALTER TABLE welcome_config ADD COLUMN card_accent TEXT`,
+    `ALTER TABLE welcome_config ADD COLUMN card_title_color TEXT`,
+    `ALTER TABLE welcome_config ADD COLUMN card_subtitle_color TEXT`,
+    `ALTER TABLE welcome_config ADD COLUMN card_upload_by TEXT`,
+    `ALTER TABLE welcome_config ADD COLUMN card_upload_at INTEGER`,
+    `ALTER TABLE welcome_config ADD COLUMN card_upload_guild_name TEXT`,
+    // Goodbye card: same look as the welcome card, its own two lines.
+    `ALTER TABLE welcome_config ADD COLUMN goodbye_card INTEGER NOT NULL DEFAULT 0`,
+    `ALTER TABLE welcome_config ADD COLUMN goodbye_card_title TEXT NOT NULL DEFAULT 'Goodbye, {name}'`,
+    `ALTER TABLE welcome_config ADD COLUMN goodbye_card_subtitle TEXT NOT NULL DEFAULT 'We now have {count} members'`,
   ]) {
     try { db.exec(col); } catch { /* column already exists */ }
   }
@@ -78,20 +96,48 @@ const stmts = {
 // Neither the dashboard nor !welcome ever documented which token names are
 // valid, so a template using the very reasonable guess {mention} silently
 // passed straight through unresolved instead of being replaced.
-function resolvePlaceholders(template, member, guild, memberCount = '?') {
-  const username    = member.user?.username      ?? member.user?.globalName ?? 'Unknown';
-  const displayName = member.displayName         ?? username;
-  const serverName  = guild?.name                ?? 'this server';
-  const mention     = `<@${member.user?.id ?? member.id}>`;
+// {name} is the display name, {count} the member count with thousands
+// separators (1,234) and {ordinal} the same as a place (1,234th).
+// asText: for the welcome card image, where a mention can't render, so
+// {user}/{mention} become the display name instead.
+export const PLACEHOLDERS = ['{user}', '{mention}', '{name}', '{username}', '{displayname}', '{server}', '{count}', '{membercount}', '{ordinal}'];
+function formatCount(n) {
+  const num = Number(n);
+  return Number.isFinite(num) ? num.toLocaleString('en-US') : String(n);
+}
+function ordinal(n) {
+  const num = Number(n);
+  // Count not known yet: "our newest member" still reads right.
+  if (!Number.isFinite(num) || num <= 0) return 'newest';
+  const tens = num % 100, ones = num % 10;
+  const suffix = tens >= 11 && tens <= 13 ? 'th' : ones === 1 ? 'st' : ones === 2 ? 'nd' : ones === 3 ? 'rd' : 'th';
+  return formatCount(num) + suffix;
+}
+// A name with nothing visible in it: empty, or only invisible or unassigned
+// characters (some people use one, like U+1CBC, to look nameless).
+const isVisible = s => /[^\p{Cf}\p{Cn}\p{Co}\p{Cc}\s]/u.test(String(s ?? ''));
 
-  return template
+export function resolvePlaceholders(template, member, guild, memberCount = '?', { asText = false } = {}) {
+  const username    = member.user?.username      ?? member.user?.globalName ?? 'Unknown';
+  // The first name that actually shows, so an invisible display name falls
+  // back to the username instead of leaving "Welcome, !".
+  const displayName = [member.displayName, member.nick, member.user?.globalName, member.user?.global_name, username]
+    .find(isVisible) ?? 'New member';
+  const serverName  = guild?.name                ?? 'this server';
+  const mention     = asText ? displayName : `<@${member.user?.id ?? member.id}>`;
+
+  return String(template ?? '')
     .replace(/{user}/g,        mention)
     .replace(/{mention}/g,     mention)
+    .replace(/{name}/g,        displayName)
     .replace(/{username}/g,    username)
     .replace(/{displayname}/g, displayName)
     .replace(/{server}/g,      serverName)
-    .replace(/{membercount}/g, String(memberCount));
+    .replace(/{membercount}/g, formatCount(memberCount))
+    .replace(/{count}/g,       formatCount(memberCount))
+    .replace(/{ordinal}/g,     ordinal(memberCount));
 }
+const usesCount = t => /{membercount}|{count}|{ordinal}/.test(t ?? '');
 
 // Cache-first: handlers/memberCountSync.js already keeps a per-guild count
 // synced (on ready, every 30 min, or via !reseedcount), reading it is a
@@ -132,11 +178,56 @@ function hexToInt(hex) {
 // (and the goodbye equivalents) were saved by the dashboard but never
 // actually read here, the message always sent as plain text regardless.
 function buildMessagePayload(text, embedOn, color) {
+  if (!text) return {};
   if (!embedOn) return { content: text };
   const embed = new EmbedBuilder().setDescription(text);
   const colorInt = hexToInt(color);
   if (colorInt != null) embed.setColor(colorInt);
   return { embeds: [embed.toJSON()] };
+}
+
+// ─── Welcome card ─────────────────────────────────────────────────────────────
+// Draws the server's welcome card for this member. Returns null (send the
+// message without it) if the card can't be drawn.
+// A line for the card image. One that needs the member count is left off
+// while the count isn't known, rather than printing "We now have ? members".
+// ({ordinal} has its own wording for that: "newest".)
+function cardLine(template, member, guild, memberCount) {
+  const known = Number.isFinite(Number(memberCount)) && Number(memberCount) > 0;
+  if (!known && /{count}|{membercount}/.test(template ?? '')) return '';
+  return resolvePlaceholders(template, member, guild, memberCount, { asText: true });
+}
+
+// lines: { title, subtitle } templates to use instead of the welcome card's
+// (the goodbye card passes its own).
+export async function welcomeCardFor(client, member, guild, config, memberCount = '?', lines = null) {
+  try {
+    const { renderWelcomeCard } = await import('./profileCard.js');
+    const { backgroundFor, cardColors } = await import('./welcomeBackgrounds.js');
+    const userId = member.user?.id ?? member.id;
+    // The server's banner/icon hashes, for the "server" background.
+    const guildId = guild?.id ?? member.guild?.id ?? member.guildId;
+    let bgGuild = { id: guildId, icon: guild?.icon ?? null, banner: guild?.banner ?? null };
+    if (config.card_background === 'server' && !bgGuild.icon && !bgGuild.banner && guildId) {
+      const g = await client.rest.get(`/guilds/${guildId}`).catch(() => null);
+      bgGuild = { id: guildId, icon: g?.icon ?? null, banner: g?.banner ?? null };
+    }
+    let avatar = member.user?.avatar ?? null;
+    if (!avatar && userId) avatar = (await client.rest.get(`/users/${userId}`).catch(() => null))?.avatar ?? null;
+    const name = resolvePlaceholders('{name}', member, guild, memberCount, { asText: true });
+    return await renderWelcomeCard({
+      theme: config.card_theme,
+      avatarUrl: avatar ? `https://fluxerusercontent.com/avatars/${userId}/${avatar}.png?size=256` : null,
+      name,
+      title: cardLine(lines ? lines.title : config.card_title, member, guild, memberCount),
+      subtitle: cardLine(lines ? lines.subtitle : config.card_subtitle, member, guild, memberCount),
+      colors: cardColors(config),
+      background: guildId ? await backgroundFor(bgGuild, config) : null,
+    });
+  } catch (err) {
+    logger.warn(`[WELCOME] Couldn't draw the welcome card: ${err.message}`);
+    return null;
+  }
 }
 
 // ─── getConfig ────────────────────────────────────────────────────────────────
@@ -154,6 +245,9 @@ export function setWelcomeField(guildId, field, value) {
     'welcome_enabled', 'welcome_channel_id', 'welcome_message',
     'goodbye_enabled', 'goodbye_channel_id', 'goodbye_message',
     'dm_enabled', 'dm_message', 'autorole_id', 'autorole_enabled',
+    'welcome_card', 'card_theme', 'card_title', 'card_subtitle',
+    'card_background', 'card_accent', 'card_title_color', 'card_subtitle_color',
+    'goodbye_card', 'goodbye_card_title', 'goodbye_card_subtitle',
   ];
   if (!allowed.includes(field)) throw new Error(`Unknown welcome config field: ${field}`);
   stmts.ensure.run(guildId);
@@ -179,8 +273,8 @@ export async function sendWelcome(client, member, { skipAutorole = false } = {})
 
   // Only pay for the extra REST call when a configured template actually
   // uses {membercount}, most guilds' welcome/DM text won't reference it.
-  const needsCount = (config.welcome_message ?? '').includes('{membercount}')
-                   || (config.dm_message ?? '').includes('{membercount}');
+  const needsCount = usesCount(config.welcome_message) || usesCount(config.dm_message)
+                   || (config.welcome_card && (usesCount(config.card_title) || usesCount(config.card_subtitle)));
   const memberCount = needsCount ? await resolveMemberCount(client, guildId) : '?';
 
   // ── Channel welcome message ───────────────────────────────────────────────
@@ -188,12 +282,18 @@ export async function sendWelcome(client, member, { skipAutorole = false } = {})
     // Raw REST, not client.channels.fetch() + channel.send(): confirmed in
     // production that pattern fails with "channel.send is not a function"
     // for at least one channel type on v2.0.1's SDK.
-    const text = resolvePlaceholders(config.welcome_message, member, guild, memberCount);
-    await client.rest.post(`/channels/${config.welcome_channel_id}/messages`, {
-      body: buildMessagePayload(text, config.welcome_embed, config.welcome_color),
-    }).catch(err =>
-      logger.warn(`[WELCOME] Failed to send welcome message in ${guildId}:`, err.message)
-    );
+    // The message (text outside the card) is optional when a card is on.
+    const text = resolvePlaceholders(config.welcome_message, member, guild, memberCount).trim();
+    const card = config.welcome_card ? await welcomeCardFor(client, member, guild, config, memberCount) : null;
+    const body = buildMessagePayload(text, config.welcome_embed, config.welcome_color);
+    if (card || body.content || body.embeds) {
+      await client.rest.post(`/channels/${config.welcome_channel_id}/messages`, {
+        body,
+        ...(card ? { files: [{ name: 'welcome.png', data: card }] } : {}),
+      }).catch(err =>
+        logger.warn(`[WELCOME] Failed to send welcome message in ${guildId}:`, err.message)
+      );
+    }
   }
 
   // ── DM welcome ────────────────────────────────────────────────────────────
@@ -242,15 +342,21 @@ export async function sendGoodbye(client, member) {
     ?? client.guilds?.cache?.get(guildId)
     ?? await client.guilds.fetch(guildId).catch(() => null);
 
-  const memberCount = (config.goodbye_message ?? '').includes('{membercount}')
+  const lines = { title: config.goodbye_card_title, subtitle: config.goodbye_card_subtitle };
+  const memberCount = usesCount(config.goodbye_message) || (config.goodbye_card && (usesCount(lines.title) || usesCount(lines.subtitle)))
     ? await resolveMemberCount(client, guildId)
     : '?';
-  const text = resolvePlaceholders(config.goodbye_message, member, guild, memberCount);
+  // The message is optional when a goodbye card is on, like welcomes.
+  const text = resolvePlaceholders(config.goodbye_message, member, guild, memberCount).trim();
+  const card = config.goodbye_card ? await welcomeCardFor(client, member, guild, config, memberCount, lines) : null;
+  const body = buildMessagePayload(text, config.goodbye_embed, config.goodbye_color);
+  if (!card && !body.content && !body.embeds) return;
   // Raw REST, not client.channels.fetch() + channel.send(): confirmed in
   // production that pattern fails with "channel.send is not a function"
   // for at least one channel type on v2.0.1's SDK.
   await client.rest.post(`/channels/${config.goodbye_channel_id}/messages`, {
-    body: buildMessagePayload(text, config.goodbye_embed, config.goodbye_color),
+    body,
+    ...(card ? { files: [{ name: 'goodbye.png', data: card }] } : {}),
   }).catch(err =>
     logger.warn(`[GOODBYE] Failed to send goodbye message in ${guildId}:`, err.message)
   );

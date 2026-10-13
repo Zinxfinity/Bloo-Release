@@ -5,10 +5,11 @@
   "type": "module",
   "main": "index.js",
   "engines": {
-    "node": ">=22.0.0"
+    "node": ">=22.13.0"
   },
   "scripts": {
     "start": "node index.js",
+    "env:check": "node scripts/env-check.mjs",
     "watchdog": "node watchdog.js",
     "check": "node --check index.js",
     "check:events": "node scripts/check-events.mjs",
@@ -17,8 +18,8 @@
   "packageManager": "pnpm@10.29.3",
   "dependencies": {
     "@fluxerjs/builders": "^3.0.0",
-    "@fluxerjs/core": "^3.0.0",
-    "@fluxerjs/voice": "^3.0.0",
+    "@fluxerjs/core": "^3.3.0",
+    "@fluxerjs/voice": "^3.1.0",
     "better-sqlite3": "12.4.1",
     "better-sqlite3-session-store": "^0.1.0",
     "canvas": "^3.2.3",

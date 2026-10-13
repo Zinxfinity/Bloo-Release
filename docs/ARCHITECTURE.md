@@ -10,11 +10,13 @@ A bot stays connected to Fluxer through the gateway, a connection that stays ope
 
 `index.js` is the first file that runs. In order, it:
 
-1. Loads your settings from `.env`.
-2. Creates the connection object (the `Client` from `@fluxerjs/core`, the library Bloo is built on).
+1. Loads your settings from `.env` (or from the file named in `DOTENV_CONFIG_PATH`, if you set one), then `config/envClean.js` strips any comment left on the same line as one of Bloo's settings, since systemd would otherwise pass it through as part of the value.
+2. Creates the connection object (the `Client` from `@fluxerjs/core` 3.3, the library Bloo is built on).
 3. Loads `db.js`, which opens the database and creates the core tables before anything else touches it.
 4. Loads every command (`handlers/commandLoader.js`) and every event handler (`handlers/eventHandler.js`).
 5. Connects to the gateway, retrying with growing delays if the first attempt fails.
+
+While it connects, Fluxer sends each server the bot is already in. The library reports those as "available", and saves "a server was created" (`GuildCreate`) for servers the bot joins after it's up, so `events/guild/guildCreate.js` only ever greets genuinely new servers. `ready.js` registers the startup servers itself.
 
 Once connected, `events/client/ready.js` starts the background jobs: the heartbeat the watchdog reads, temporary ban expiry, giveaways, polls, reminders, scheduled messages, XP decay, feed polling and the rest. After that, everything is triggered by events arriving over the gateway. There's no main loop polling for work.
 
@@ -55,7 +57,9 @@ When a command or handler file gets too big because it does several jobs, it bec
 
 Most tables only grow as fast as servers use a feature. Analytics is the exception: it records every hour for each server that turned it on, so `handlers/analyticsSystem.js` cleans up after itself once a day. In this release analytics stays off, because the switch for it lives on the dashboard, so those tables stay empty.
 
-Back up `data/bot.db` before updating or moving the bot. Copy it while the bot is stopped, or copy the `-wal` and `-shm` files next to it as well.
+Images live next to the database, not in it. `data/card-backgrounds/` holds rank card backgrounds members submit, and `data/welcome-backgrounds/` holds welcome card images: one a server owner uploaded, or a card-sized copy of a server's banner. Every image is cropped and re-saved by Bloo, so nothing is stored at its original size. A server's welcome images are deleted when the bot leaves that server.
+
+Back up the whole `data/` folder before updating or moving the bot. Copy it while the bot is stopped, or copy the `-wal` and `-shm` files next to `bot.db` as well.
 
 ## Ticket transcripts
 

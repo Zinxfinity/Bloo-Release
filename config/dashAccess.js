@@ -30,6 +30,7 @@ export function isBotOwner(userId) {
 // several times per page load).
 const ownerCache = new Map();
 const OWNER_TTL = 5 * 60_000;
+const ownerFailLogged = new Map();
 
 export async function isRealOwner(db, guildId, userId) {
   if (typeof guildId !== 'string' || typeof userId !== 'string') return false;
@@ -46,7 +47,16 @@ export async function isRealOwner(db, guildId, userId) {
     const r = await fetch(`${FLUXER_API_BASE}/guilds/${guildId}`, {
       headers: { Authorization: `Bot ${process.env.FLUXER_BOT_TOKEN}` },
     });
-    if (!r.ok) return false;
+    if (!r.ok) {
+      // Say why, once a minute per server at most: this used to fail
+      // silently and show the real owner "No Access".
+      const last = ownerFailLogged.get(guildId) ?? 0;
+      if (Date.now() - last > 60_000) {
+        ownerFailLogged.set(guildId, Date.now());
+        console.warn(`[dashAccess] Owner lookup for guild ${guildId} failed: Fluxer answered ${r.status}`);
+      }
+      return false;
+    }
     const guild = await r.json();
     ownerCache.set(guildId, { ownerId: guild.owner_id, until: Date.now() + OWNER_TTL });
     if (ownerCache.size > 2000) ownerCache.delete(ownerCache.keys().next().value);

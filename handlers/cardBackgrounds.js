@@ -128,7 +128,7 @@ export function setCardTheme(userId, theme) {
 // ─── Upload processing ────────────────────────────────────────────────────────
 // Downloads an attachment (size-capped while reading), checks it's a real
 // image within limits, and returns it cropped to the card's shape.
-async function fetchImage(url) {
+export async function fetchImage(url) {
   if (!/^https:\/\//i.test(url)) throw new CardError('That upload has an unexpected address.');
   const res = await fetch(url, { signal: AbortSignal.timeout(20_000) });
   if (!res.ok) throw new CardError(`Couldn't download the image (${res.status}).`);
@@ -144,7 +144,8 @@ async function fetchImage(url) {
 }
 const tooBig = () => `That image is over ${LIMITS.maxBytes / 1024 / 1024} MB. Please upload a smaller one.`;
 
-export async function processImage(buffer) {
+// shape: the size to crop to (the rank card by default; welcome cards pass their own).
+export async function processImage(buffer, shape = LIMITS) {
   const { createCanvas, loadImage } = await import('canvas');
   // Sniff the real format rather than trusting the name or content type.
   const sig = buffer.subarray(0, 12);
@@ -160,12 +161,12 @@ export async function processImage(buffer) {
   if (img.width > LIMITS.maxSide || img.height > LIMITS.maxSide) {
     throw new CardError(`That image is ${img.width}x${img.height}. The largest allowed is ${LIMITS.maxSide}x${LIMITS.maxSide}.`);
   }
-  if (img.width < LIMITS.minWidth || img.height < LIMITS.minHeight) {
-    throw new CardError(`That image is ${img.width}x${img.height}, too small to look sharp. Use at least ${LIMITS.minWidth}x${LIMITS.minHeight} (ideally ${LIMITS.outW}x${LIMITS.outH}).`);
+  if (img.width < (shape.minWidth ?? LIMITS.minWidth) || img.height < (shape.minHeight ?? LIMITS.minHeight)) {
+    throw new CardError(`That image is ${img.width}x${img.height}, too small to look sharp. Use at least ${shape.minWidth ?? LIMITS.minWidth}x${shape.minHeight ?? LIMITS.minHeight} (ideally ${shape.outW}x${shape.outH}).`);
   }
 
   // Cover-crop to the card's shape, centred.
-  const { outW, outH } = LIMITS;
+  const { outW, outH } = shape;
   const scale = Math.max(outW / img.width, outH / img.height);
   const w = img.width * scale, h = img.height * scale;
   const canvas = createCanvas(outW, outH);

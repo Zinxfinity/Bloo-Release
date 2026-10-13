@@ -139,6 +139,7 @@ export default {
     await startPoller(client, '../../handlers/digestJob.js',         'startDigestJob');
     await startPoller(client, '../../handlers/fluxerStatusMonitor.js', 'startFluxerStatusMonitor');
     await startPoller(client, '../../handlers/statusPoller.js',        'startStatusPoller');
+    await startPoller(client, '../../handlers/statusAnnouncer.js',     'startStatusAnnouncer');
     await startPoller(client, '../../handlers/fluxerListReporter.js', 'startFluxerListReporter', client);
     await startPoller(client, '../../handlers/votes.js',              'startVotePoller');
     await startPoller(client, '../../handlers/retiredFeatures.js',    'cleanupRetiredFeatures');
