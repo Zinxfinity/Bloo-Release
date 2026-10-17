@@ -157,6 +157,7 @@ export default {
       await startPoller(client, '../../handlers/economy/reputation/decayJob.js', 'startRepDecayJob');
       await startPoller(client, '../../handlers/economy/reputation/decayJob.js', 'startOrgRepJob');
       await startPoller(client, '../../handlers/economy/expedition/poller.js', 'startExpeditionPoller');
+      await startPoller(client, '../../handlers/economy/betaTest.js', 'startBetaMonitor'); // ECONOMY-BETA: remove at launch
     }
 
     // ── 3. Startup alert ──────────────────────────────────────────────────────

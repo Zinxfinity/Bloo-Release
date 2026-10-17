@@ -74,20 +74,25 @@ function buildDigest(guildId) {
   // Action strings written by ban/kick/mute/warn commands are mixed case and
   // descriptive ('Member Banned', 'Softban', 'Mass Ban', 'mute', 'kick',
   // 'tempban', 'unban', ...), so match with LOWER() rather than exact equality.
-  let warns = 0, bans = 0, kicks = 0, mutes = 0, unbans = 0;
+  let warns = 0, bans = 0, kicks = 0, mutes = 0, unbans = 0, unmutes = 0;
   try {
+    // Older rows were stamped in milliseconds, so both units are matched.
     const modRows = db.prepare(`
       SELECT LOWER(action) AS action, COUNT(*) as count
       FROM modlog_cases
-      WHERE guild_id = ? AND created_at >= ? AND created_at < ?
+      WHERE guild_id = ? AND ((created_at >= ? AND created_at < ?) OR (created_at >= ? AND created_at < ?))
       GROUP BY LOWER(action)
-    `).all(guildId, startS, endS);
+    `).all(guildId, startS, endS, startMs, endMs);
 
+    // Actions are stored by their canonical names (modLog.js normalizeAction):
+    // ban, massban, tempban, softban, kick, mute, timeout, unban, unmute,
+    // timeout-remove, plus free-text labels for non-moderation entries.
     for (const { action, count } of modRows) {
       if (action.includes('ban') && !action.includes('unban')) bans += count;
-      if (action.includes('kick')) kicks += count;
-      if (action.includes('timed out') || action === 'mute' || action === 'timeout') mutes += count;
-      if (action.includes('unban') || action.includes('timeout removed')) unbans += count;
+      else if (action.includes('unban')) unbans += count;
+      else if (action.includes('kick')) kicks += count;
+      else if (action === 'unmute' || action === 'timeout-remove' || action.includes('timeout removed')) unmutes += count;
+      else if (action === 'mute' || action === 'timeout' || action.includes('timed out')) mutes += count;
     }
   } catch { /* modlog_cases may not exist yet */ }
 
@@ -113,6 +118,9 @@ function buildDigest(guildId) {
   } catch { /* tickets not configured */ }
 
   // ── Member change ─────────────────────────────────────────────────────────
+  // Joins, leaves and activity only exist while the server has analytics on.
+  let analytics = false;
+  try { analytics = !!db.prepare('SELECT enabled FROM analytics_config WHERE guild_id = ?').get(guildId)?.enabled; } catch { /* no analytics table */ }
   let joins = 0, leaves = 0;
   try {
     joins  = db.prepare('SELECT COUNT(*) as c FROM analytics_joins  WHERE guild_id = ? AND ts >= ? AND ts < ?').get(guildId, startMs, endMs)?.c ?? 0;
@@ -131,22 +139,23 @@ function buildDigest(guildId) {
     messageCount = actRow?.mc ?? 0;
   } catch { /* analytics not enabled */ }
 
-  return { yesterday, warns, bans, kicks, mutes, unbans, ticketsOpened, ticketsClosed, joins, leaves, activeUsers, messageCount };
+  return { yesterday, warns, bans, kicks, mutes, unbans, unmutes, ticketsOpened, ticketsClosed, analytics, joins, leaves, activeUsers, messageCount };
 }
 
 // ─── Embed builder ────────────────────────────────────────────────────────────
 function buildEmbed(data) {
   const {
-    yesterday, warns, bans, kicks, mutes, unbans,
+    yesterday, warns, bans, kicks, mutes, unbans, unmutes = 0,
     ticketsOpened, ticketsClosed,
-    joins, leaves, activeUsers, messageCount,
+    analytics = true, joins, leaves, activeUsers, messageCount,
   } = data;
 
   const net      = joins - leaves;
   const netStr   = net > 0 ? `+${net}` : String(net);
   const netColor = net > 0 ? 0x4ade80 : net < 0 ? 0xf87171 : 0x94a3b8;
 
-  const modTotal = warns + bans + kicks + mutes;
+  const modTotal = warns + bans + kicks + mutes + unbans + unmutes;
+  const noAnalytics = '*Analytics is off. Turn it on in the dashboard to see this.*';
 
   return {
     color:       netColor,
@@ -155,19 +164,19 @@ function buildEmbed(data) {
     fields: [
       {
         name:   'Members',
-        value:  [
+        value:  analytics ? [
           `Joined: **${joins}**`,
           `Left: **${leaves}**`,
           `Net: **${netStr}**`,
-        ].join('\n'),
+        ].join('\n') : noAnalytics,
         inline: true,
       },
       {
         name:   'Activity',
-        value:  [
+        value:  analytics ? [
           `Active users: **${activeUsers}**`,
           `Total messages: **${(messageCount ?? 0).toLocaleString()}**`,
-        ].join('\n'),
+        ].join('\n') : noAnalytics,
         inline: true,
       },
       { name: '​', value: '​', inline: true }, // spacer
@@ -179,7 +188,8 @@ function buildEmbed(data) {
               warns  > 0 ? `Warnings: **${warns}**`  : null,
               bans   > 0 ? `Bans: **${bans}**`   : null,
               kicks  > 0 ? `Kicks: **${kicks}**`  : null,
-              mutes  > 0 ? `Mutes: **${mutes}**`  : null,
+              mutes  > 0 ? `Timeouts: **${mutes}**`  : null,
+              unmutes > 0 ? `Timeouts lifted: **${unmutes}**` : null,
               unbans > 0 ? `Unbans: **${unbans}**` : null,
             ].filter(Boolean).join('\n'),
         inline: true,

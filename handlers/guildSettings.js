@@ -95,3 +95,37 @@ export function setModlogChannel(guildId, channelId) {
 export function invalidateGuild(guildId) {
   cache.delete(guildId);
 }
+
+// ─── Command cooldown ─────────────────────────────────────────────────────────
+// How long members wait between uses of the same command, chosen per server
+// between COOLDOWN_MIN_S and COOLDOWN_MAX_S (NULL = the minimum). The
+// minimum is also the hard limit for everyone but bot owners; members with
+// Administrator or Manage Messages skip any extra wait a server adds. The
+// rules themselves live in handlers/commandHandler.js (Gate 3).
+export const COOLDOWN_MIN_S = 3;
+export const COOLDOWN_MAX_S = 10;
+try { db.exec('ALTER TABLE guild_settings ADD COLUMN command_cooldown_s INTEGER'); } catch { /* already there */ }
+const cooldownStmts = {
+  get: db.prepare('SELECT command_cooldown_s AS s FROM guild_settings WHERE guild_id = ?'),
+  set: db.prepare('UPDATE guild_settings SET command_cooldown_s = ?, updated_at = unixepoch() WHERE guild_id = ?'),
+};
+
+export function getCommandCooldown(guildId) {
+  const s = Number(cooldownStmts.get.get(guildId)?.s);
+  return Number.isFinite(s) && s > 0 ? Math.min(Math.max(Math.round(s), COOLDOWN_MIN_S), COOLDOWN_MAX_S) : COOLDOWN_MIN_S;
+}
+
+// seconds = null resets to the minimum. Throws on anything outside the range.
+export function setCommandCooldown(guildId, seconds) {
+  let value = null;
+  if (seconds != null) {
+    value = Number(seconds);
+    if (!Number.isInteger(value) || value < COOLDOWN_MIN_S || value > COOLDOWN_MAX_S) {
+      throw new RangeError(`The cooldown must be a whole number of seconds from ${COOLDOWN_MIN_S} to ${COOLDOWN_MAX_S}.`);
+    }
+    if (value === COOLDOWN_MIN_S) value = null;
+  }
+  ensureGuild(guildId);
+  cooldownStmts.set.run(value, guildId);
+  return value ?? COOLDOWN_MIN_S;
+}

@@ -106,7 +106,8 @@ export default {
     const isBotOwnerUser = isBotOwner(userId);
     const isOwnerUser    = isBotOwnerUser || await isRealOwner(guildId, userId);
     const bits           = await getMemberPermissionBitsLive(client, guildId, userId);
-    const economyVisible = economyEnabled() && (isBotOwnerUser || await isEconomyReleased() || await isEconomyAdmin(userId));
+    const economyVisible = economyEnabled() && (isBotOwnerUser || await isEconomyReleased() || await isEconomyAdmin(userId)
+      || !!await (await import('../../handlers/economy/betaTest.js').catch(() => null))?.hasBetaAccess(userId)); // ECONOMY-BETA: drop this line at launch
     const betaTester     = isBotOwnerUser || await isBetaTester(userId);
     const access         = { isBotOwnerUser, isOwnerUser, bits, economyVisible, betaTester };
 

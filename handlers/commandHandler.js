@@ -6,7 +6,7 @@ import * as resilience from './resilience.js';
 import { findForeignChannelArg } from '../utils/channelGuard.js';
 
 // ─── Cooldown store ───────────────────────────────────────────────────────────
-// Map<commandName, Map<userId, expiresAt>>
+// Map<commandName, Map<userId, lastUsedAt>> (see Gate 3)
 const cooldowns = new Map();
 
 // ─── Quarantine ───────────────────────────────────────────────────────────────
@@ -62,6 +62,51 @@ async function loadEconomyGate() {
     _isEconomyAdmin     = mod?.isEconomyAdmin    ?? (() => false);
     _ecoComingSoonMsg   = mod?.ECONOMY_COMING_SOON_MESSAGE ?? 'The economy system isn\'t available yet.';
   }
+}
+
+// ECONOMY-BETA: the beta test module (missing in the release build, where
+// this stays null and nobody gets beta access). Remove at launch.
+let _ecoBeta = null;
+import('./economy/betaTest.js').then(m => { _ecoBeta = m; }).catch(() => {});
+const ecoBeta = () => _ecoBeta;
+
+// The per-server cooldown setting (handlers/guildSettings.js).
+let _cooldownSettings = null;
+async function loadCooldownSettings() {
+  _cooldownSettings ??= await import('./guildSettings.js').catch(() => ({ COOLDOWN_MIN_S: 3, COOLDOWN_MAX_S: 10, getCommandCooldown: () => 3 }));
+  return _cooldownSettings;
+}
+
+// Server owner, Administrator or Manage Messages skip a server's extra
+// cooldown. Remembered for a minute so a busy member costs one lookup.
+const _cooldownBypass = new Map();
+async function bypassesServerCooldown(client, guildId, userId) {
+  const key = `${guildId}:${userId}`;
+  const hit = _cooldownBypass.get(key);
+  if (hit && Date.now() - hit.at < 60_000) return hit.ok;
+  await loadStaffSystem();
+  let ok = await _isRealOwner(guildId, userId);
+  if (!ok) {
+    const [{ getMemberPermissionBitsLive }, { Permissions }] = await Promise.all([import('./staffSystem.js'), import('../config/guildPermissions.js')]);
+    const bits = await getMemberPermissionBitsLive(client, guildId, userId);
+    ok = (bits & (Permissions.ADMINISTRATOR | Permissions.MANAGE_MESSAGES)) !== 0n;
+  }
+  _cooldownBypass.set(key, { ok, at: Date.now() });
+  if (_cooldownBypass.size > 5000) _cooldownBypass.delete(_cooldownBypass.keys().next().value);
+  return ok;
+}
+
+// Spam check before a command or tag runs. Staff exemption uses the same
+// rule as the cooldown bypass above. Fails open if the module won't load.
+let _spam = null;
+async function spamBlocked(client, message, guildId, userId, commandName, prefix) {
+  _spam ??= await import('./commandSpam.js').catch(() => ({ checkSpam: async () => false }));
+  await loadStaffSystem();
+  return _spam.checkSpam({
+    client, message, guildId, userId, commandName, prefix,
+    isBotOwner: _isBotOwner(userId),
+    isExemptStaff: () => bypassesServerCooldown(client, guildId, userId),
+  });
 }
 
 async function isStaff(client, guildId, userId) {
@@ -246,6 +291,7 @@ export async function handleMessage(client, message) {
     }
     const tag = _getTag(guildId, rawName);
     if (!tag) return;
+    if (await spamBlocked(client, message, guildId, userId, rawName, prefix)) return;
 
     // Respect channel restriction for non-staff
     const tagIsStaff = await isStaff(client, guildId, userId);
@@ -277,6 +323,9 @@ export async function handleMessage(client, message) {
   }
 
   // ── Gate 0: Quarantine ────────────────────────────────────────────────────
+  // Command spam across different commands (handlers/commandSpam.js).
+  if (await spamBlocked(client, message, guildId, userId, command.name, prefix)) return;
+
   if (command.quarantined) {
     await safeReply(message, {
       embeds: [Embed.denied('This command is temporarily disabled while an issue is investigated.').toJSON()],
@@ -333,15 +382,28 @@ export async function handleMessage(client, message) {
   }
 
   // ── Gate 3: Cooldown ──────────────────────────────────────────────────────
-  const cooldownS = command.cooldown ?? 3;
-  if (cooldownS > 0) {
+  // Per person, per command. Bot owners never wait. Everyone else waits at
+  // least COOLDOWN_MIN_S (the hard limit), or the command's own cooldown if
+  // that's longer. A server can raise the wait up to COOLDOWN_MAX_S with
+  // b!cooldown; the server owner and members with Administrator or Manage
+  // Messages skip that extra part, but never the hard limit.
+  await loadStaffSystem();
+  if (!_isBotOwner(userId)) {
+    const cd      = await loadCooldownSettings();
+    const ownS    = Math.max(command.cooldown ?? cd.COOLDOWN_MIN_S, cd.COOLDOWN_MIN_S);
+    const serverS = cd.getCommandCooldown(guildId);
     if (!cooldowns.has(command.name)) cooldowns.set(command.name, new Map());
-    const userCooldowns = cooldowns.get(command.name);
-    const now           = Date.now();
-    const expires       = userCooldowns.get(userId) ?? 0;
+    const lastUses = cooldowns.get(command.name);
+    const now      = Date.now();
+    const elapsed  = now - (lastUses.get(userId) ?? 0);
 
-    if (now < expires) {
-      const remaining = ((expires - now) / 1000).toFixed(1);
+    // The permission lookup only happens inside the server's extra window.
+    let waitS = 0;
+    if (elapsed < ownS * 1000) waitS = ownS;
+    else if (serverS > ownS && elapsed < serverS * 1000 && !await bypassesServerCooldown(client, guildId, userId)) waitS = serverS;
+
+    if (waitS) {
+      const remaining = ((waitS * 1000 - elapsed) / 1000).toFixed(1);
       await safeReply(message, {
         embeds: [Embed.warning(
           `Please wait **${remaining}s** before using \`${prefix}${command.name}\` again.`
@@ -350,12 +412,13 @@ export async function handleMessage(client, message) {
       return;
     }
 
-    userCooldowns.set(userId, now + cooldownS * 1000);
+    lastUses.set(userId, now);
 
-    // Clean up expired entries periodically
+    // Clean up entries past any possible wait now and then.
     if (Math.random() < 0.05) {
-      for (const [uid, exp] of userCooldowns) {
-        if (exp < now) userCooldowns.delete(uid);
+      const keep = Math.max(ownS, cd.COOLDOWN_MAX_S) * 1000;
+      for (const [uid, at] of lastUses) {
+        if (now - at > keep) lastUses.delete(uid);
       }
     }
   }
@@ -370,7 +433,7 @@ export async function handleMessage(client, message) {
   // regardless of release state, that's how they keep building/testing it.
   if (command.category === 'economy') {
     await loadEconomyGate();
-    if (!_isEconomyReleased() && !_isEconomyAdmin(userId)) {
+    if (!_isEconomyReleased() && !_isEconomyAdmin(userId) && !await ecoBeta()?.hasBetaAccess(userId)) { // ECONOMY-BETA: drop the hasBetaAccess part at launch
       await safeReply(message, {
         embeds: [Embed.info(_ecoComingSoonMsg, '🚧 Coming Soon').toJSON()],
       });
@@ -409,10 +472,16 @@ export async function handleMessage(client, message) {
   // ── Execute ───────────────────────────────────────────────────────────────
   _recordCommand ??= (await import('./serverInsights.js').catch(() => null))?.recordCommand ?? (() => {});
   _recordCommand(guildId, command.name);
+  // ECONOMY-BETA: while the beta is open, log every economy command. Remove at launch.
+  const betaLog = command.category === 'economy' && ecoBeta()?.betaOpen()
+    ? { userId, guildId, channelId: message.channel?.id ?? message.channelId, command: command.name, args, started: Date.now() }
+    : null;
   try {
     await command.execute({ message, args, prefix, client });
+    if (betaLog) ecoBeta().logCommand({ ...betaLog, outcome: 'ok', ms: Date.now() - betaLog.started });
     await safeDelete(message);
   } catch (err) {
+    if (betaLog) ecoBeta().logCommand({ ...betaLog, outcome: 'error', error: err?.message ?? err, ms: Date.now() - betaLog.started });
     await handleCommandError(message, command, prefix, err);
   }
 }

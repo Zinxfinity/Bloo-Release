@@ -335,9 +335,18 @@ export async function postRelease(releaseId) {
   if (!row) throw new ChangelogError('That release does not exist.');
   const url = getWebhookUrl();
   if (!url) { q.hook.run('skipped', 'No changelog webhook is set.', null, row.id); return { ok: false, status: 'skipped' }; }
+  // Ping the updates role on a release's first successful post only, so a
+  // repost after a failure or a deleted message doesn't ping everyone twice.
+  const role = /^\d{5,25}$/.test(process.env.CHANGELOG_PING_ROLE_ID || '') ? process.env.CHANGELOG_PING_ROLE_ID : null;
+  let ping = role && row.webhook_status !== 'posted';
   try {
     for (const embeds of releaseMessages(releaseView(row))) {
-      await send(url, { username: 'Bloo Updates', avatar_url: process.env.BLOO_PFP_URL || `${SITE()}/assets/bloo-pfp.png`, embeds });
+      await send(url, {
+        username: 'Bloo Updates', avatar_url: process.env.BLOO_PFP_URL || `${SITE()}/assets/bloo-pfp.png`, embeds,
+        content: ping ? `<@&${role}>` : undefined,
+        allowed_mentions: { parse: [], roles: ping ? [role] : [] },
+      });
+      ping = false;
     }
     q.hook.run('posted', null, Date.now(), row.id);
     return { ok: true, status: 'posted' };
