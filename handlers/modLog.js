@@ -3,6 +3,7 @@ import logger from '../utils/logger.js';
 import { Embed, COLORS } from '../config/embeds.js';
 import { getModlogChannel, setModlogChannel } from './guildSettings.js';
 import { handle as guardHandle, clear as guardClear } from './permissionGuard.js';
+import { describeUser } from './messageLogger.js';
 
 // ─── Schema ───────────────────────────────────────────────────────────────────
 db.exec(`
@@ -38,6 +39,8 @@ db.exec(`
 for (const col of [
   `ALTER TABLE modlog_cases ADD COLUMN case_number INTEGER NOT NULL DEFAULT 0`,
   `ALTER TABLE modlog_cases ADD COLUMN extra TEXT`,
+  // 'detailed' (default, a card per case) or 'minimal' (one line per case).
+  `ALTER TABLE modlog_config ADD COLUMN log_style TEXT NOT NULL DEFAULT 'detailed'`,
 ]) { try { db.exec(col); } catch { /* already exists */ } }
 
 // ─── Prepared statements ──────────────────────────────────────────────────────
@@ -394,9 +397,36 @@ export async function logAction({
     });
   }
 
+  // People are shown as username#0000 (id), so a case still identifies them
+  // after they rename. Roles, channels or unknown IDs keep the resolved name.
+  const userLabel = async (id, fallback) => {
+    if (!/^\d{15,25}$/.test(String(id ?? ''))) return fallback;
+    const u = await describeUser(client, guildId, id).catch(() => null);
+    return u && u.tag !== 'Unknown user' ? u.tag : fallback;
+  };
+  const targetLabel   = await userLabel(targetId, resolvedTargetTag);
+  const executorLabel = await userLabel(executorId, resolvedExecutorTag);
+
+  // Minimal style: the whole case on one line, plain text.
+  if ((getModlogConfig(guildId)?.log_style ?? 'detailed') === 'minimal') {
+    const flat   = t => String(t ?? '').replace(/```/g, '').replace(/\s+/g, ' ').trim();
+    const extras = cleanedExtraFields.map(f => `${flat(f.name)}: ${flat(f.value)}`).join(' · ');
+    const line   = `**${label}** #${caseNumber} · ${targetLabel} (\`${targetId}\`) by ${executorLabel} (\`${executorId}\`)` +
+      ` · ${flat(reason || 'No reason provided.')}${extras ? ` · ${extras}` : ''}`;
+    queueSend(channelId, () =>
+      sendWithRetry(client, channelId, { content: line.slice(0, 2000), allowed_mentions: { parse: [] } }).then(() => {
+        guardClear('MODLOG', guildId);
+      }).catch(err => {
+        guardHandle('MODLOG', guildId, channelId, err, () => setModlogChannel(guildId, null));
+        logger.warn(`[MODLOG] Failed to send case #${caseNumber} for guild ${guildId}:`, err.message);
+      })
+    );
+    return caseNumber;
+  }
+
   const fields = [
-    { name: 'Target',   value: `${resolvedTargetTag} (\`${targetId}\`)`,   inline: true },
-    { name: 'Executor', value: `${resolvedExecutorTag} (\`${executorId}\`)`, inline: true },
+    { name: 'Target',   value: `${targetLabel} (\`${targetId}\`)`,   inline: true },
+    { name: 'Executor', value: `${executorLabel} (\`${executorId}\`)`, inline: true },
     { name: 'Reason',   value: '```\n' + sanitizeForCodeBlock(reason || 'No reason provided.') + '\n```', inline: false },
     ...cleanedExtraFields,
   ];
@@ -433,6 +463,12 @@ export function getModlogConfig(guildId) {
 }
 
 // ─── setModlogFlag ────────────────────────────────────────────────────────────
+export function setModlogStyle(guildId, style) {
+  if (!['detailed', 'minimal'].includes(style)) throw new Error('Log style must be detailed or minimal.');
+  stmts.ensureConfig.run(guildId);
+  db.prepare('UPDATE modlog_config SET log_style = ? WHERE guild_id = ?').run(style, guildId);
+}
+
 const VALID_FLAGS = new Set([
   'log_joins', 'log_leaves', 'log_bans', 'log_kicks',
   'log_mutes', 'log_warns', 'log_role_changes',

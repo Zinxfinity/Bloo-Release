@@ -669,7 +669,8 @@ async function handleLevelUp(client, message, guildId, userId, oldLevel, level, 
 
   const levelName  = getLevelName(guildId, level) ?? `Level ${level}`;
   const { nextLevel, next: nextXp } = levelProgress(guildId, totalXp);
-  const fresh      = keep.filter(r => r.level > oldLevel);
+  // The reward roles this level-up newly reached, for {roles}.
+  const fresh      = rewardRolesForXp(guildId, totalXp).filter(r => r.level > oldLevel);
   const rolesText  = fresh.length ? fresh.map(r => `<@&${r.role_id}>`).join(', ') : 'None';
   // Per-user opt-out (Account page, dashboard/routes/userPreferences.js):
   // still announced by name either way, {username} covers "who", this

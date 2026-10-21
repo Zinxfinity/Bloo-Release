@@ -31,12 +31,19 @@ import * as resilience from './resilience.js';
 const POLL_MS = 30 * 60_000; // 30 minutes, matches typical bot-list update cadence
 const BASE    = 'https://fluxerlist.com/api';
 
+// FluxerList limits how many updates a key can send. Posting only when the
+// count changed keeps well inside it, and a 429 pauses posting until the
+// reset time it gives instead of failing (and logging) every 30 minutes.
+let lastReported = null;
+let pausedUntil  = 0;
+
 async function postServerCount(client) {
   const apiKey = process.env.FLUXERLIST_API_KEY;
   const botId  = process.env.FLUXER_CLIENT_ID;
   if (!apiKey || !botId) return; // silently skip, not configured
 
   const serverCount = client?.guilds?.cache?.size ?? 0;
+  if (Date.now() < pausedUntil || serverCount === lastReported) return;
 
   try {
     const res = await fetch(`${BASE}/bots/${botId}/stats`, {
@@ -49,12 +56,23 @@ async function postServerCount(client) {
       signal: AbortSignal.timeout(10_000),
     });
 
+    if (res.status === 429) {
+      const body = await res.json().catch(() => ({}));
+      const retryS = Number(res.headers.get('retry-after'));
+      const reset  = Number(body?.reset);
+      // reset is a millisecond timestamp; fall back to Retry-After, then an hour.
+      pausedUntil = reset > Date.now() ? reset : Date.now() + (retryS > 0 ? retryS * 1000 : 60 * 60_000);
+      logger.warn(`[FLUXERLIST] Rate limited; pausing server count updates until ${new Date(pausedUntil).toISOString()}.`);
+      return;
+    }
+
     if (!res.ok) {
       const body = await res.text().catch(() => '');
       logger.warn(`[FLUXERLIST] Stats update failed: HTTP ${res.status} ${body.slice(0, 200)}`);
       return;
     }
 
+    lastReported = serverCount;
     logger.info(`[FLUXERLIST] Reported server count: ${serverCount}`);
   } catch (err) {
     logger.warn(`[FLUXERLIST] Stats update failed: ${err.message}`);

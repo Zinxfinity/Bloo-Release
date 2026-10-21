@@ -49,7 +49,18 @@ export default {
         const mod = await import('../../handlers/activityLog.js').catch(() => null);
         _logNickChange = mod?.logNickChange ?? (() => {});
       }
-      try { await _logNickChange(client, guildId, userId, oldNick, newNick); } catch { /* non-fatal */ }
+      try { await _logNickChange(client, guildId, userId, oldNick, newNick, newMember.user); } catch { /* non-fatal */ }
+    }
+
+    // ── Detect username change ────────────────────────────────────────────
+    // Only possible when the old member was cached with its user data.
+    const oldUser = oldMember?.user, newUser = newMember.user;
+    if (oldUser?.username && newUser?.username
+        && (oldUser.username !== newUser.username || (oldUser.discriminator ?? '') !== (newUser.discriminator ?? ''))) {
+      try {
+        const { logUsernameChange } = await import('../../handlers/activityLog.js');
+        await logUsernameChange(client, guildId, userId, oldUser, newUser);
+      } catch { /* non-fatal */ }
     }
   },
 };

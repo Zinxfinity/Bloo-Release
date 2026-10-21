@@ -110,6 +110,7 @@ const stmts = {
     )
   `),
   deleteSeenItemsById: db.prepare(`DELETE FROM webhook_seen_items WHERE feed_id = ?`),
+  forgetSeenItem: db.prepare(`DELETE FROM webhook_seen_items WHERE feed_id = ? AND item_id = ?`),
   incrFail:      db.prepare(`
     UPDATE webhook_feeds
     SET fail_count = fail_count + 1,
@@ -445,7 +446,24 @@ async function postItem(client, channelId, feed, item) {
 // scratch. `!webhook enable <id>` (or the dashboard toggle) brings it back.
 const FAIL_DURATION_S = 6 * 60 * 60; // 6 hours of continuous failure
 
-async function trackFailure(client, feed) {
+const isPermissionError = err => err?.status === 403 || err?.statusCode === 403
+  || /permission/i.test(err?.message ?? '');
+
+// Tells the person who added a feed that it was paused, by DM. The usual
+// notice goes in the feed's own channel, which is exactly where Bloo can't
+// post when the cause is missing permissions.
+async function dmFeedOwner(client, feed, text) {
+  if (!/^\d{15,25}$/.test(String(feed.added_by ?? ''))) return false;
+  try {
+    const dm = await client.rest.post('/users/@me/channels', { body: { recipient_id: feed.added_by } });
+    await client.rest.post(`/channels/${dm.id}/messages`, { body: { embeds: [danger(text, 'Feed Subscription Paused').setTimestamp().toJSON()] } });
+    return true;
+  } catch { return false; }
+}
+
+// reason 'permissions': Bloo was refused when posting, so the pause notice
+// goes to the person who added the feed instead of the channel.
+async function trackFailure(client, feed, reason = null) {
   stmts.incrFail.run(feed.id);
   const row = stmts.get.get(feed.id);
   if (!row?.first_fail_at) return;
@@ -456,14 +474,21 @@ async function trackFailure(client, feed) {
   stmts.disableById.run(feed.id);
   logger.warn(`[WEBHOOK] Feed #${feed.id} "${feed.name}" auto-disabled after failing continuously for ${Math.round(failingForS / 3600)}h.`);
 
-  try {
-    await client.rest.post(`/channels/${feed.channel_id}/messages`, {
-      body: { embeds: [danger(
-        `The feed subscription **${feed.name}** (ID: #${feed.id}) has been automatically paused after failing continuously for over ${FAIL_DURATION_S / 3600} hours.\n\nThis usually means the source was temporarily down, not necessarily gone for good. Check the feed URL still works, then run \`!webhook enable ${feed.id}\` to resume it.`,
-        'Feed Subscription Paused'
-      ).setTimestamp().toJSON()] },
-    });
-  } catch { /* best-effort, channel may be read-only, or gone entirely */ }
+  const P = process.env.PREFIX ?? 'b!';
+  const cause = reason === 'permissions'
+    ? `I wasn't allowed to post in <#${feed.channel_id}>. Open that channel's **Permissions**, add my role, allow **View Channel**, **Send Messages** and **Embed Links**, then run \`${P}webhook enable ${feed.id}\`. Anything I couldn't post will go out then.`
+    : `This usually means the source was temporarily down, not necessarily gone for good. Check the feed URL still works, then run \`${P}webhook enable ${feed.id}\` to resume it.`;
+  const text = `The feed subscription **${feed.name}** (ID: #${feed.id}) has been automatically paused after failing continuously for over ${FAIL_DURATION_S / 3600} hours.\n\n${cause}`;
+  let told = false;
+  if (reason !== 'permissions') {
+    try {
+      await client.rest.post(`/channels/${feed.channel_id}/messages`, {
+        body: { embeds: [danger(text, 'Feed Subscription Paused').setTimestamp().toJSON()] },
+      });
+      told = true;
+    } catch { /* best-effort, channel may be read-only, or gone entirely */ }
+  }
+  if (!told) await dmFeedOwner(client, feed, text);
 }
 
 // ─── Prune feeds for a guild Bloo has actually left ──────────────────────────
@@ -578,12 +603,18 @@ async function checkFeed(client, feed, force = false) {
 
   // Post newest last (so channel order matches feed order)
   let posted = 0;
+  let lastPostError = null;
   for (const item of newItems.reverse()) {
     try {
       await postItem(client, feed.channel_id, feed, item);
       posted++;
     } catch (err) {
       logger.warn(`[WEBHOOK] Feed #${feed.id} post error: ${err.message}`);
+      lastPostError = err;
+      // Refused for permissions: forget the item so it posts once staff fix
+      // the channel. Otherwise everything published while Bloo was locked out
+      // (a whole stream's VOD, say) was marked handled and never appeared.
+      if (isPermissionError(err)) for (const k of itemKeys(item)) stmts.forgetSeenItem.run(feed.id, k);
     }
   }
 
@@ -592,7 +623,7 @@ async function checkFeed(client, feed, force = false) {
     return { ok: true, posted };
   }
   // Had items but couldn't deliver any, count as a delivery failure
-  await trackFailure(client, feed);
+  await trackFailure(client, feed, lastPostError && isPermissionError(lastPostError) ? 'permissions' : null);
   return { ok: false, reason: 'delivery-failed', posted: 0 };
 }
 

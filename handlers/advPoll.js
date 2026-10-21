@@ -164,37 +164,40 @@ export function closePoll(pollId, closedBy) {
 }
 
 // ─── Embed rendering ──────────────────────────────────────────────────────────
-function progressBar(pct, width = 12) {
+function progressBar(pct, width = 9) {
   const fill = Math.round(Math.min(Math.max(pct, 0), 100) / 100 * width);
-  return '█'.repeat(fill) + '░'.repeat(width - fill);
+  return '🟩'.repeat(fill) + '⬛'.repeat(width - fill);
 }
 
 export function buildPollEmbed(poll, options) {
   const counts = Object.fromEntries(stmts.countVotesByOption.all(poll.id).map(r => [r.option_idx, r.n]));
   const totalVotes = Object.values(counts).reduce((a, b) => a + b, 0);
   const uniqueVoters = stmts.countUniqueVoters.get(poll.id).n;
+  // Each choice's share of the people who voted ("80% of voters picked
+  // this"). In a multiple-choice poll the shares can add up past 100%; in a
+  // single-choice poll voters and votes are the same, so it's the usual split.
+  const base = uniqueVoters;
 
   const lines = [];
   if (poll.description) lines.push(poll.description, '');
   lines.push(poll.mode === 'multiple'
-    ? 'This is a multiple-choice poll, you can cast more than one choice.'
-    : 'This is a single-choice poll, casting a new choice replaces your previous one.');
+    ? '-# This is a multiple-choice poll, you can cast more than one choice.'
+    : '-# This is a single-choice poll, casting a new choice replaces your previous one.');
   lines.push(poll.closed_at
-    ? `**This poll is closed.**`
-    : `This poll's expiry date is <t:${poll.ends_at}:F> (<t:${poll.ends_at}:R>)`);
-  lines.push('');
+    ? '-# **This poll is closed.**'
+    : `-# This poll's expiry date is <t:${poll.ends_at}:F> <t:${poll.ends_at}:R>`);
 
   for (const opt of options) {
     const count = counts[opt.idx] ?? 0;
-    const pct = totalVotes > 0 ? Math.round((count / totalVotes) * 100) : 0;
-    lines.push(`**${opt.emoji} ${opt.label}**`, `${progressBar(pct)} ${pct}%`, '');
+    const pct = base > 0 ? Math.round((count / base) * 100) : 0;
+    lines.push(`#### ${opt.label}`, `-# ${opt.emoji} ${progressBar(pct)} **${pct}%**`);
   }
 
-  lines.push(`Votes count: ${totalVotes}`, `Unique voters: ${uniqueVoters}`);
+  lines.push('', `-# Votes count: ${totalVotes}`, `-# Unique voters: ${uniqueVoters}`);
 
   return new EmbedBuilder()
     .setColor(poll.closed_at ? COLORS.MUTED : COLORS.INFO)
-    .setTitle(`📢 ${poll.question}`)
+    .setTitle(`📬 ${poll.question}`)
     .setDescription(lines.join('\n').slice(0, 4096))
     .setFooter({ text: poll.closed_at ? `Poll #${poll.id}` : `Poll #${poll.id} · Host or a mod can react ${CLOSE_EMOJI} to close early` })
     .toJSON();

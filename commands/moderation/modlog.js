@@ -29,8 +29,9 @@ import {
   addIgnoredChannel,
   removeIgnoredChannel,
   getIgnoredChannels,
+  setMsgLogStyle,
 } from '../../handlers/messageLogger.js';
-import { getModlogConfig, setModlogFlag } from '../../handlers/modLog.js';
+import { getModlogConfig, setModlogFlag, setModlogStyle } from '../../handlers/modLog.js';
 import { getModlogChannel, setModlogChannel } from '../../handlers/guildSettings.js';
 import { Permissions } from '../../config/guildPermissions.js';
 import { isChannelInGuild } from '../../utils/channelGuard.js';
@@ -46,7 +47,7 @@ const MOD_TYPE_MAP = {
   joins:  'log_joins',
   leaves: 'log_leaves',
   roles:  'log_role_changes',
-  nicks:  'log_nick_changes',
+  nicks:  'log_nick_changes', // also covers username changes
 };
 const MOD_TYPE_SET = new Set(Object.keys(MOD_TYPE_MAP));
 
@@ -81,11 +82,13 @@ function buildStatusEmbed(msgCfg, modCfg, ignoredIds, prefix, caseChannelId) {
       { name: '📥  Joins',         value: tog(modCfg.log_joins),        inline: true  },
       { name: '📤  Leaves',        value: tog(modCfg.log_leaves),       inline: true  },
       { name: '🎭  Role Changes',  value: tog(modCfg.log_role_changes), inline: true  },
-      { name: '✏️  Nick Changes',  value: tog(modCfg.log_nick_changes), inline: true  },
+      { name: '✏️  Name Changes',  value: tog(modCfg.log_nick_changes), inline: true  },
       { name: '📨  Sent',          value: tog(msgCfg.log_sent),         inline: true  },
       { name: '✏️  Edited',        value: tog(msgCfg.log_edits),        inline: true  },
       { name: '🗑️  Deleted',       value: tog(msgCfg.log_deletes),      inline: true  },
       { name: '🤖  Bot Messages',  value: tog(msgCfg.log_bot),          inline: true  },
+      { name: '🎨  Message Log Style', value: msgCfg.log_style === 'minimal' ? 'Minimal' : 'Detailed', inline: true },
+      { name: '🎨  Case Log Style',    value: modCfg.log_style === 'minimal' ? 'Minimal' : 'Detailed', inline: true },
       { name: `🚫  Ignored Channels (${ignoredIds.length})`, value: ignoredList, inline: false },
     )
     .setFooter({ text: `${prefix}modlog enable|disable <type>  ·  ${prefix}modlog channel <#ch>` });
@@ -97,7 +100,7 @@ export default {
   name: 'modlog',
   aliases: ['msglog', 'messagelog', 'mlog'],
   description: 'Configure the message log and moderation case channels, choose what gets logged, and exclude channels such as staff chat from logging.',
-  usage: '{prefix}modlog <channel | cases | enable | disable | status | ignore | unignore>',
+  usage: '{prefix}modlog <channel | cases | enable | disable | style | status | ignore | unignore>',
   example:
     '{prefix}modlog channel #mod-logs\n' +
     '{prefix}modlog cases #mod-cases\n' +
@@ -131,6 +134,28 @@ export default {
     }
 
     switch (sub.toLowerCase()) {
+
+      // ── style <messages|cases> <detailed|minimal> ─────────
+      // Detailed (default) gives each entry several lines (a card, for
+      // cases); minimal fits each entry on one line. Both always name the
+      // person as username#0000 (id).
+      case 'style': {
+        const which  = rest[0]?.toLowerCase();
+        const style  = rest[1]?.toLowerCase();
+        const target = ['messages', 'message', 'msg'].includes(which) ? 'messages'
+                     : ['cases', 'case', 'mod'].includes(which) ? 'cases' : null;
+        if (!target || !['detailed', 'minimal'].includes(style)) {
+          await message.reply({ embeds: [Embed.warning(
+            `Usage: \`${PREFIX}modlog style <messages|cases> <detailed|minimal>\`\n\n` +
+            '**Detailed** (default) gives each entry several lines. **Minimal** fits each one on a single line. Both show who it was as username#0000 (id).'
+          ).toJSON()] });
+          return;
+        }
+        if (target === 'messages') setMsgLogStyle(guildId, style);
+        else setModlogStyle(guildId, style);
+        await message.reply({ embeds: [Embed.success(`The ${target === 'messages' ? 'message log' : 'case log'} now uses the **${style}** style.`).toJSON()] });
+        return;
+      }
 
       // ── cases <#ch | off> ─────────────────────────────────
       // Where moderation case embeds (bans, kicks, warns...) are posted. Only
@@ -406,6 +431,7 @@ export default {
                 { name: `\`${PREFIX}modlog ignore <#channel>\``,   value: 'Exclude a channel from logging (staff chat, etc)', inline: false },
                 { name: `\`${PREFIX}modlog unignore <#channel>\``, value: 'Re-enable logging for an ignored channel',         inline: false },
                 { name: `\`${PREFIX}modlog ignored\``,             value: 'List all currently ignored channels',              inline: false },
+                { name: `\`${PREFIX}modlog style <messages|cases> <detailed|minimal>\``, value: 'Choose how much each log entry shows', inline: false },
                 { name: `\`${PREFIX}modlog status\``,              value: 'Show full configuration (default)',                inline: false },
                 {
                   name:  'Message Log Types',

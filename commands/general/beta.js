@@ -25,11 +25,17 @@ export default {
 
     if (await isBetaTester(message.author.id)) {
       const cmds = betaCommands(client);
+      // ECONOMY-BETA: remove at launch.
+      const ecoOpen = !!(await import('../../handlers/economy/betaTest.js').catch(() => null))?.betaOpen();
+      const lines = [
+        ...(ecoOpen ? ['- **The economy game**: open to testers in the support server\'s economy channel. Check the latest round post there for what to test.'] : []),
+        ...cmds.map(c => `- \`${P}${c.name}\`: ${c.description ?? ''}`),
+      ];
       embed.setTitle('🧪 Beta testing')
         .setDescription([
           'Thanks for testing! These are in beta right now, for testers only:',
           '',
-          cmds.length ? cmds.map(c => `- \`${P}${c.name}\`: ${c.description ?? ''}`).join('\n') : '- Nothing at the moment. New things show up here first.',
+          lines.length ? lines.join('\n') : '- Nothing at the moment. New things show up here first.',
           '',
           `Spotted something off? \`${P}feedback\` goes straight to the team, or post in the support server's beta channel.`,
         ].join('\n'));
