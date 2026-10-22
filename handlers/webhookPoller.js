@@ -598,7 +598,14 @@ async function checkFeed(client, feed, force = false) {
     for (const item of [...newItems, ...seenNow]) for (const k of itemKeys(item)) stmts.touchSeenItem.run(feed.id, k);
     stmts.pruneSeenItems.run(feed.id, feed.id, Math.max(200, items.length * 4));
   })();
-  if (!newItems.length) return { ok: true, posted: 0 };
+  if (!newItems.length) {
+    // A good fetch with nothing new still proves the feed works, so it ends
+    // any failure streak. Before, only a check that posted something did,
+    // so a source that failed now and then (YouTube's feeds do) built up
+    // "6 hours of failure" out of scattered errors and got paused.
+    if (feed.fail_count > 0 || feed.first_fail_at) stmts.resetFail.run(feed.id);
+    return { ok: true, posted: 0 };
+  }
   stmts.upsertSeen.run(feed.id, newItems[0].id); // legacy display column, dashboard/routes/webhooks.js
 
   // Post newest last (so channel order matches feed order)
