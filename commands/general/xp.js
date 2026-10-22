@@ -10,6 +10,8 @@ import {
   softPrune, hardPrune, levelProgress,
   getLevelName, getLevelDefinitions, getStreak, getStreakSettings,
   adjustXp, syncRewardRoles, rewardRolesForXp, MAX_XP,
+  XpSettingError, setMultiplier, listMultipliers, startBoost, endBoost, listBoosts,
+  listLevelDefs, setLevelDef, removeLevelDef,
 } from '../../handlers/xpSystem.js';
 import { logAction } from '../../handlers/modLog.js';
 import logger from '../../utils/logger.js';
@@ -29,7 +31,7 @@ export default {
   name: 'xp',
   aliases: ['level', 'lvl'],
   description: 'XP system management.',
-  usage: '{prefix}xp [config|leaderboard|rank|reset|prune|rolereward]\n{prefix}xp <give|take|set> @user <amount>\n{prefix}xp syncroles',
+  usage: '{prefix}xp [config|leaderboard|rank|reset|prune|rolereward]\n{prefix}xp <give|take|set> @user <amount>\n{prefix}xp syncroles\n{prefix}xp multiplier [<#channel|@role> <0-10|reset>]\n{prefix}xp boost [<multiplier> <hours> [label] | end <id>]\n{prefix}xp level [set <level> <xp> <name> | remove <level>]',
   requiredPermission: null,
   internalAccess: true, // subcommands gate themselves via resolveAccess
 
@@ -49,8 +51,9 @@ export default {
     if (sub === 'rolereward' || sub === 'rr') return handleRoleReward(client, message, args.slice(1), guildId, executorId, prefix);
     if (sub === 'give' || sub === 'take' || sub === 'set') return handleAdjust(client, message, sub, args.slice(1), guildId, executorId, prefix);
     if (sub === 'syncroles')   return handleSyncRoles(client, message, guildId, executorId);
+    if (['multiplier', 'multi', 'boost', 'level', 'levels'].includes(sub)) return handleXpSettings(client, message, sub, args.slice(1), guildId, executorId, prefix);
 
-    await message.reply({ embeds: [Embed.warning(`Unknown subcommand. Use \`${prefix}xp rank|leaderboard|config|reset|prune|rolereward|give|take|set|syncroles\``).toJSON()] });
+    await message.reply({ embeds: [Embed.warning(`Unknown subcommand. Use \`${prefix}xp rank|leaderboard|config|reset|prune|rolereward|give|take|set|syncroles|multiplier|boost|level\``).toJSON()] });
   },
 };
 
@@ -147,6 +150,7 @@ async function handleConfig(client, message, args, guildId, executorId, prefix) 
   // The message is free text, so take everything after the field name
   // (it used to keep only the first word).
   const value = field === 'message' ? args.slice(1).join(' ').trim() : args[1];
+  const onOff = c => (c ? 'On' : 'Off');
 
   if (!field || !value) {
     const config = getXpConfig(guildId);
@@ -159,10 +163,17 @@ async function handleConfig(client, message, args, guildId, executorId, prefix) 
         { name: 'Cooldown',         value: `${config.xp_cooldown_s}s`,    inline: true },
         { name: 'Level-up Channel', value: config.levelup_channel ? `<#${config.levelup_channel}>` : 'Where the member is talking', inline: true },
         { name: 'Stack Roles',      value: config.stack_roles ? 'Yes' : 'No', inline: true },
+        { name: 'Levels',           value: onOff(config.levels_enabled ?? 1), inline: true },
+        { name: 'Level-up Message', value: (config.levelup_notify ?? 1) ? 'Posted' : 'Not posted', inline: true },
+        { name: 'Reward Roles',     value: onOff(config.role_rewards ?? 1), inline: true },
+        { name: 'Embed Colour',     value: config.levelup_color ?? 'Default', inline: true },
+        { name: 'Banner Image',     value: config.levelup_image ? 'Set' : 'None', inline: true },
         { name: 'Streak Bonus',     value: (s => s.enabled ? `+${s.bonus_pct}% (${s.mode === 'week' ? 'weekly' : 'daily'}, all servers)` : 'Off')(getStreakSettings()), inline: true },
-        { name: 'Decay',            value: config.decay_enabled ? `${config.decay_rate_pct}% every ${config.decay_interval_days} days` : 'Off', inline: true },
+        { name: 'Decay',            value: config.decay_enabled
+            ? `${config.decay_rate_pct}% after ${config.decay_interval_days} quiet days, never below ${config.decay_floor_mode === 'level' ? 'level' : ''} ${(config.decay_floor_xp ?? 0).toLocaleString()}${config.decay_floor_mode === 'level' ? '' : ' XP'}${config.role_remove_on_decay ? ', reward roles removed' : ''}`
+            : 'Off', inline: false },
       )
-      .setFooter({ text: `${prefix}xp config <enabled|min|max|cooldown|channel|message|stackroles> <value>. More settings on the dashboard.` });
+      .setFooter({ text: `${prefix}xp config <setting> <value>. Settings: enabled, min, max, cooldown, channel, message, stackroles, levels, notify, rolerewards, color, image, decay, decayrate, decaydays, decayfloor, decayfloormode, decayroles` });
     return message.reply({ embeds: [embed.toJSON()] });
   }
 
@@ -174,6 +185,19 @@ async function handleConfig(client, message, args, guildId, executorId, prefix) 
     channel:    'levelup_channel',
     message:    'levelup_message',
     stackroles: 'stack_roles',
+    // Same settings as the dashboard's XP page.
+    levels:         'levels_enabled',
+    notify:         'levelup_notify',
+    rolerewards:    'role_rewards',
+    color:          'levelup_color',
+    colour:         'levelup_color',
+    image:          'levelup_image',
+    decay:          'decay_enabled',
+    decayrate:      'decay_rate_pct',
+    decaydays:      'decay_interval_days',
+    decayfloor:     'decay_floor_xp',
+    decayfloormode: 'decay_floor_mode',
+    decayroles:     'role_remove_on_decay',
   };
 
   const dbField = fieldMap[field];
@@ -183,7 +207,8 @@ async function handleConfig(client, message, args, guildId, executorId, prefix) 
 
   const warn = (text) => message.reply({ embeds: [Embed.warning(text).toJSON()] });
   let parsed;
-  if (['enabled', 'stack_roles'].includes(dbField)) {
+  const RANGES = { decay_rate_pct: [0, 100, '%'], decay_interval_days: [1, 365, ' days'], decay_floor_xp: [0, 1e9, ''] };
+  if (['enabled', 'stack_roles', 'levels_enabled', 'levelup_notify', 'role_rewards', 'decay_enabled', 'role_remove_on_decay'].includes(dbField)) {
     const v = value.toLowerCase();
     if (['true', '1', 'on', 'yes'].includes(v)) parsed = 1;
     else if (['false', '0', 'off', 'no'].includes(v)) parsed = 0;
@@ -196,6 +221,21 @@ async function handleConfig(client, message, args, guildId, executorId, prefix) 
     if ((dbField === 'xp_min' && parsed > cfg.xp_max) || (dbField === 'xp_max' && parsed < cfg.xp_min)) {
       return warn(`Min can't be above max (currently ${cfg.xp_min}–${cfg.xp_max}).`);
     }
+  } else if (RANGES[dbField]) {
+    const [lo, hi, unit] = RANGES[dbField];
+    parsed = Number(value);
+    if (!Number.isInteger(parsed) || parsed < lo || parsed > hi) return warn(`\`${field}\` must be a whole number from ${lo} to ${hi.toLocaleString()}${unit}.`);
+  } else if (dbField === 'decay_floor_mode') {
+    parsed = value.toLowerCase();
+    if (!['xp', 'level'].includes(parsed)) return warn('Use `xp` (never drop below that much XP) or `level` (never drop below that level).');
+  } else if (dbField === 'levelup_color') {
+    if (['none', 'off', 'reset', 'default'].includes(value.toLowerCase())) parsed = null;
+    else if (/^#?[0-9a-f]{6}$/i.test(value)) parsed = value.startsWith('#') ? value : `#${value}`;
+    else return warn('Use a 6-digit hex colour like `#F5A623`, or `none`.');
+  } else if (dbField === 'levelup_image') {
+    if (['none', 'off', 'reset'].includes(value.toLowerCase())) parsed = null;
+    else if (/^https?:\/\/\S+$/i.test(value)) parsed = value;
+    else return warn('Use an image link starting with http(s), or `none`.');
   } else if (dbField === 'levelup_channel') {
     // The command handler's foreign-channel gate already rejects channels
     // from other servers; this just stores the bare ID.
@@ -375,4 +415,88 @@ async function handleSyncRoles(client, message, guildId, executorId) {
   // Not a mod log case: those need one target member, and this covers everyone.
   logger.info(`[XP] syncroles in ${guildId} by ${executorId}: ${res.checked} checked, ${res.changed} changed (+${res.given} / -${res.removed}), ${res.failed} failed`);
   await show(res.failed ? Embed.warning(lines.join('\n')) : Embed.success(lines.join('\n')));
+}
+
+// ─── b!xp multiplier / boost / level ──────────────────────────────────────────
+// The rest of the dashboard's XP page, by command:
+//   b!xp multiplier                          list channel and role multipliers
+//   b!xp multiplier <#channel|@role> <0-10>  set one (0 = no XP there)
+//   b!xp multiplier <#channel|@role> reset   remove it
+//   b!xp boost                               list running boosts
+//   b!xp boost <multiplier> <hours> [label]  start a server-wide XP boost
+//   b!xp boost end <id>                      end one early
+//   b!xp level                               list custom level names
+//   b!xp level set <level> <xp> <name>       name a level and set its XP
+//   b!xp level remove <level>                back to the default curve
+async function handleXpSettings(client, message, sub, args, guildId, executorId, prefix) {
+  if (!await resolveAccess(client, guildId, executorId, 'xp', Permissions.BAN_MEMBERS)) {
+    return message.reply({ embeds: [Embed.denied('Ban Members or higher required.').toJSON()] });
+  }
+  const reply = (e) => message.reply({ embeds: [e.toJSON()] });
+  try {
+    if (sub === 'multiplier' || sub === 'multi') {
+      if (!args[0]) {
+        const { channels, roles } = listMultipliers(guildId);
+        const lines = [
+          ...channels.map(c => `<#${c.channel_id}>: **×${c.multiplier}**${c.multiplier === 0 ? ' (no XP)' : ''}`),
+          ...roles.map(r => `<@&${r.role_id}>: **×${r.multiplier}**${r.multiplier === 0 ? ' (no XP)' : ''}`),
+        ];
+        return reply(Embed.info(lines.length ? lines.join('\n') : 'No multipliers. Everyone earns the normal amount everywhere.', 'XP multipliers')
+          .setFooter({ text: `${prefix}xp multiplier <#channel|@role> <0-10|reset>` }));
+      }
+      const ch = args[0].match(/^<#(\d+)>$/)?.[1], role = args[0].match(/^<@&(\d+)>$/)?.[1];
+      const kind = ch ? 'channel' : role ? 'role' : null;
+      if (!kind || !args[1]) return reply(Embed.warning(`Usage: \`${prefix}xp multiplier <#channel|@role> <0-10|reset>\`. 0 means no XP there, 2 means double.`));
+      const target = ch ?? role, label = ch ? `<#${ch}>` : `<@&${role}>`;
+      if (['reset', 'remove', 'off', 'none'].includes(args[1].toLowerCase())) {
+        return reply(setMultiplier(guildId, kind, target, null)
+          ? Embed.success(`${label} earns the normal amount of XP again.`)
+          : Embed.info(`${label} didn't have a multiplier.`));
+      }
+      const m = Number(args[1].replace(/^x/i, ''));
+      setMultiplier(guildId, kind, target, m);
+      return reply(Embed.success(m === 0 ? `No XP is earned ${kind === 'channel' ? 'in' : 'by members with'} ${label} now.` : `XP ${kind === 'channel' ? 'in' : 'for members with'} ${label} is now **×${m}**.`));
+    }
+
+    if (sub === 'boost') {
+      if (!args[0]) {
+        const boosts = listBoosts(guildId);
+        return reply(Embed.info(boosts.length
+          ? boosts.map(b => `**#${b.id}** ×${b.multiplier}${b.label ? ` · ${b.label}` : ''} · ends <t:${Math.floor(b.expires_at / 1000)}:R>`).join('\n')
+          : 'No XP boost is running.', 'XP boosts').setFooter({ text: `${prefix}xp boost <multiplier> <hours> [label] · ${prefix}xp boost end <id>` }));
+      }
+      if (args[0].toLowerCase() === 'end') {
+        return reply(endBoost(guildId, args[1]) ? Embed.success(`Boost #${args[1]} ended.`) : Embed.warning(`No running boost #${args[1] ?? '?'}.`));
+      }
+      const m = Number(args[0].replace(/^x/i, '')), hours = Number(args[1]);
+      if (!args[1]) return reply(Embed.warning(`Usage: \`${prefix}xp boost <multiplier> <hours> [label]\`, e.g. \`${prefix}xp boost 2 24 Double XP weekend\`.`));
+      const id = startBoost(guildId, m, hours, args.slice(2).join(' ') || null, executorId);
+      return reply(Embed.success(`Boost #${id} started: **×${m}** XP for everyone for ${hours} hour${hours === 1 ? '' : 's'}, ending <t:${Math.floor((Date.now() + hours * 3_600_000) / 1000)}:R>.`));
+    }
+
+    // level / levels
+    const action = args[0]?.toLowerCase();
+    if (!action || action === 'list') {
+      const defs = listLevelDefs(guildId);
+      return reply(Embed.info(defs.length
+        ? defs.map(d => `**${d.level}.** ${d.name}: ${d.xp_required.toLocaleString()} XP`).join('\n')
+        : 'No custom levels. Members level up on the default curve.', 'Custom levels')
+        .setFooter({ text: `${prefix}xp level set <level> <xp> <name> · ${prefix}xp level remove <level>` }));
+    }
+    if (action === 'set') {
+      const level = Number(args[1]), xp = Number(String(args[2] ?? '').replace(/,/g, ''));
+      if (!args[3]) return reply(Embed.warning(`Usage: \`${prefix}xp level set <level> <xp needed> <name>\`, e.g. \`${prefix}xp level set 5 2500 Regular\`.`));
+      setLevelDef(guildId, level, xp, args.slice(3).join(' '));
+      return reply(Embed.success(`Level ${level} is now **${args.slice(3).join(' ')}**, reached at ${xp.toLocaleString()} XP.`));
+    }
+    if (action === 'remove' || action === 'delete') {
+      return reply(removeLevelDef(guildId, Number(args[1]))
+        ? Embed.success(`Level ${args[1]} removed, along with any reward roles set on it.`)
+        : Embed.warning(`There's no custom level ${args[1] ?? '?'}.`));
+    }
+    return reply(Embed.warning(`Usage: \`${prefix}xp level [list | set <level> <xp> <name> | remove <level>]\``));
+  } catch (err) {
+    if (err instanceof XpSettingError) return reply(Embed.warning(err.message));
+    throw err;
+  }
 }

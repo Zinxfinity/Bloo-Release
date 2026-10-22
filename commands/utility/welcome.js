@@ -45,7 +45,7 @@ export default {
   name: 'welcome',
   aliases: ['goodbye'],
   description: 'Configure welcome/goodbye messages and auto-role.',
-  usage: '{prefix}welcome [channel|message|card|goodbye|autorole|dm|test]',
+  usage: '{prefix}welcome [channel|message|embed|card|goodbye|autorole|dm|test]',
   category: 'utility',
 
   requiredPermission: Permissions.BAN_MEMBERS,
@@ -56,6 +56,24 @@ export default {
     const guildId = message.guildId;
     const cfg = getWelcomeConfig(guildId);
     const sub = args[0]?.toLowerCase();
+
+    // b!welcome embed / b!welcome goodbye embed <on|off> [#colour]
+    const setMessageStyle = async (which, rest) => {
+      const mode = rest[0]?.toLowerCase();
+      if (!['on', 'off'].includes(mode)) {
+        return message.reply({ embeds: [Embed.warning(`Usage: \`${prefix}welcome ${which === 'goodbye' ? 'goodbye ' : ''}embed <on|off> [#colour]\`. On sends the ${which} message as an embed, in the colour you give.`).toJSON()] });
+      }
+      let hex = null;
+      if (rest[1]) {
+        hex = rest[1].replace(/^#?/, '#');
+        if (!/^#[0-9a-f]{6}$/i.test(hex)) return message.reply({ embeds: [Embed.warning('Use a 6-digit hex colour like `#5865F2`.').toJSON()] });
+      }
+      setWelcomeField(guildId, `${which}_embed`, mode === 'on' ? 1 : 0);
+      if (hex) setWelcomeField(guildId, `${which}_color`, hex.toUpperCase());
+      return message.reply({ embeds: [Embed.success(mode === 'on'
+        ? `The ${which} message is now sent as an embed${hex ? ` in \`${hex.toUpperCase()}\`` : ''}.`
+        : `The ${which} message is now sent as plain text.`).toJSON()] });
+    };
 
     // ── Status (no subcommand) ────────────────────────────────────────────
     if (!sub || sub === 'status') {
@@ -70,6 +88,7 @@ export default {
           { name: 'Auto-Role',       value: cfg.autorole_id ? `<@&${cfg.autorole_id}>` : 'Not set',          inline: true },
           { name: 'DM Welcome',      value: onOff(cfg.dm_enabled),                                            inline: true },
           { name: 'Welcome Card',    value: cfg.welcome_card ? `✅ ${WELCOME_CARD_THEMES[cfg.card_theme] ?? 'Bloo'} theme` : '❌ Disabled', inline: true },
+          { name: 'Message Style',   value: `Welcome: ${cfg.welcome_embed ? `embed ${cfg.welcome_color ?? ''}` : 'plain text'} · Goodbye: ${cfg.goodbye_embed ? `embed ${cfg.goodbye_color ?? ''}` : 'plain text'}`, inline: false },
           { name: 'Welcome Message', value: cfg.welcome_message?.slice(0, 200) || 'None (card only)',          inline: false },
           { name: 'Goodbye Message', value: cfg.goodbye_message?.slice(0, 200) ?? 'Default',                  inline: false },
         );
@@ -211,8 +230,13 @@ export default {
     }
 
     // ── goodbye ───────────────────────────────────────────────────────────
+    // ── welcome embed <on|off> [#colour] ──────────────────────────────────
+    // Same as the dashboard's "send as embed" switch and embed colour.
+    if (sub === 'embed') return setMessageStyle('welcome', args.slice(1));
+
     if (sub === 'goodbye') {
       const sub2 = args[1]?.toLowerCase();
+      if (sub2 === 'embed') return setMessageStyle('goodbye', args.slice(2));
       if (sub2 === 'channel') {
         if (args[2]?.toLowerCase() === 'off') {
           setWelcomeField(guildId, 'goodbye_enabled', 0);

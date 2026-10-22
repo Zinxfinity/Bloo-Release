@@ -114,3 +114,54 @@ export function setConfessionStatus(confessionId, status, messageId = null) {
 export function revealConfessionAuthor(confessionId) {
   return db.prepare('SELECT author_id FROM confessions WHERE id = ?').get(confessionId)?.author_id ?? null;
 }
+
+// ─── Shared with b!confess and the dashboard ──────────────────
+export class ConfessionError extends Error {}
+export const CONFESSION_COLOR = 0xa78bfa; // purple
+
+// The public embed for a confession or an anonymous reply.
+export function confessionEmbed(id, content, replyTo = null) {
+  return {
+    title: replyTo ? `💜  Anonymous Reply to Confession #${replyTo}` : `💜  Anonymous Confession #${id}`,
+    description: content,
+    color: CONFESSION_COLOR,
+    footer: { text: `Confession #${id} • Submitted anonymously` },
+    timestamp: new Date().toISOString(),
+  };
+}
+
+function pendingIn(guildId, confessionId) {
+  const c = getConfession(confessionId);
+  if (!c || c.guild_id !== guildId || c.status !== 'pending') throw new ConfessionError('No pending confession with that ID.');
+  return c;
+}
+
+// Posts a pending confession to the confession channel.
+export async function approveConfession(client, guildId, confessionId) {
+  const c = pendingIn(guildId, confessionId);
+  const { channel_id } = getConfessionConfig(guildId);
+  if (!channel_id) throw new ConfessionError('No confession channel is set.');
+  const msg = await client.rest.post(`/channels/${channel_id}/messages`, { body: { embeds: [confessionEmbed(c.id, c.content, c.reply_to)] } }).catch(() => null);
+  if (!msg?.id) throw new ConfessionError('Couldn\'t post to the confession channel. Check Bloo can send messages and embeds there.');
+  setConfessionStatus(c.id, 'posted', msg.id);
+  return { id: c.id, messageId: msg.id };
+}
+
+// Drops a pending confession without posting it. The author isn't told.
+export function denyConfession(guildId, confessionId) {
+  const c = pendingIn(guildId, confessionId);
+  setConfessionStatus(c.id, 'denied', null);
+  return { id: c.id };
+}
+
+export function listConfessionBlacklist(guildId) {
+  return db.prepare('SELECT user_id FROM confession_blacklist WHERE guild_id = ?').all(guildId).map(r => r.user_id);
+}
+
+// Recent confessions for staff, without who wrote them.
+export function listRecentConfessions(guildId, limit = 25) {
+  return db.prepare(`
+    SELECT id, content, reply_to, status, submitted_at FROM confessions
+    WHERE guild_id = ? ORDER BY id DESC LIMIT ?
+  `).all(guildId, limit);
+}

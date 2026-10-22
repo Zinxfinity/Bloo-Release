@@ -1,5 +1,5 @@
 // ============================================================
-//  commands/moderation/links.js
+//  commands/moderation/links/index.js
 //  Category : Moderation  |  Rank: Server Owner (default)
 //
 //  !links on/off                      , toggle scanner
@@ -11,12 +11,13 @@
 // ============================================================
 
 import { EmbedBuilder }                    from '@fluxerjs/core';
-import { Embed, COLORS }                   from '../../config/embeds.js';
+import { Embed, COLORS }                   from '../../../config/embeds.js';
 import {
   getConfig, setEnabled, addDomain, removeDomain,
   addChannel, removeChannel, normaliseEntry, bulkAddDomains, joinList,
-} from '../../handlers/linkScanner.js';
-import { registerPagination } from '../../handlers/paginationManager.js';
+} from '../../../handlers/linkScanner.js';
+import { registerPagination } from '../../../handlers/paginationManager.js';
+import { handleEnforce } from './enforce.js';
 
 const DOMAINS_PER_PAGE = 15;
 
@@ -38,7 +39,7 @@ export default {
   name: 'links',
   aliases: ['linkscanner', 'linkscan'],
   description: 'Configure the link scanner to block all links except approved domains.',
-  usage: '{prefix}links <on|off|status|allow|deny|channel> [args]',
+  usage: '{prefix}links <on|off|status|allow|deny|channel|enforce> [args]',
   category: 'moderation',
 
   requiredPermission: 'SERVER_OWNER',
@@ -59,6 +60,9 @@ export default {
       const channels = joinList(cfg?.channel_whitelist);
       return { cfg, domains, channels };
     }
+
+    // Link Enforcement settings (commands/moderation/linksEnforce.js).
+    if (sub?.toLowerCase() === 'enforce') return handleEnforce({ message, rest, prefix: PREFIX, guildId });
 
     switch (sub?.toLowerCase()) {
 

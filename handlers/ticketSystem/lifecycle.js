@@ -445,6 +445,7 @@ export async function reopenTicket(client, guildId, caseId, reopenedBy, userId) 
 
   if (!ticket) return { ok: false, reason: 'not-found' };
   if (ticket.status === 'open') return { ok: false, reason: 'already-open' };
+  userId ??= ticket.user_id; // the opener gets their channel access back
 
   const config = getTicketConfig(guildId);
   // Recover the original option (if it still exists) from the closed

@@ -132,7 +132,7 @@ function extractDomains(text) {
 
 // Matches an entry from domain_whitelist/domain_blacklist against a
 // candidate domain, per the *.sub / exact-path conventions already
-// documented in commands/moderation/links.js's entryTypeLabel(): a bare
+// documented in commands/moderation/links/index.js's entryTypeLabel(): a bare
 // domain matches itself and all subdomains, a "*.sub" entry matches only
 // subdomains (not the bare domain), and a "/path" suffix additionally
 // requires that literal path to appear in the message content.
@@ -370,6 +370,25 @@ const SETTABLE_FIELDS = [
   'age_min_days', 'age_young_action', 'age_young_dur_min', 'age_old_action', 'age_old_dur_min',
   'approval_channel_id',
 ];
+
+// What each setting accepts, shared by b!links enforce and the dashboard
+// (which used to save anything it was sent). Returns an error message, or
+// null when the value is fine.
+export const ENFORCE_MODES   = ['standard', 'shadow', 'strike', 'severity', 'age_gate', 'approval'];
+export const ENFORCE_ACTIONS = ['delete', 'timeout', 'kick', 'ban'];
+export function checkLinkEnforcementValue(field, value) {
+  const isId = v => v == null || /^\d{15,25}$/.test(String(v));
+  const intIn = (v, lo, hi) => Number.isInteger(Number(v)) && Number(v) >= lo && Number(v) <= hi;
+  if (field === 'enabled') return [0, 1, true, false].includes(value) ? null : 'enabled must be on or off.';
+  if (field === 'mode') return ENFORCE_MODES.includes(value) ? null : `Mode must be one of: ${ENFORCE_MODES.join(', ')}.`;
+  if (/_action$/.test(field)) return ENFORCE_ACTIONS.includes(value) ? null : `Action must be one of: ${ENFORCE_ACTIONS.join(', ')}.`;
+  if (/_dur_min$/.test(field)) return intIn(value, 0, 40320) ? null : 'Duration must be 0 to 40320 minutes (28 days).';
+  if (field === 'strike_window_h') return intIn(value, 1, 720) ? null : 'The strike window must be 1 to 720 hours.';
+  if (field === 'age_min_days') return intIn(value, 0, 3650) ? null : 'Account age must be 0 to 3650 days.';
+  if (/_channel_id$|_role_id$/.test(field)) return isId(value) ? null : 'Use a channel or role, or off.';
+  if (field === 'dm_template') return value == null || String(value).length <= 1000 ? null : 'Keep the DM under 1000 characters.';
+  return null;
+}
 
 export function setLinkEnforcementField(guildId, field, value) {
   if (!SETTABLE_FIELDS.includes(field)) throw new Error(`Unknown link enforcement field: ${field}`);

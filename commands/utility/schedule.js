@@ -1,6 +1,6 @@
 import { EmbedBuilder } from '@fluxerjs/core';
 import { Embed, COLORS } from '../../config/embeds.js';
-import { scheduleAction, listScheduled, cancelScheduled } from '../../handlers/scheduleSystem.js';
+import { scheduleAction, listScheduled, cancelScheduled, SCHEDULE_TYPES, SCHEDULE_MAX_CONTENT } from '../../handlers/scheduleSystem.js';
 import { Permissions } from '../../config/guildPermissions.js';
 import { isChannelInGuild } from '../../utils/channelGuard.js';
 
@@ -37,7 +37,7 @@ export default {
     if (sub === 'cancel') {
       const id = parseInt(args[1], 10);
       if (!id) return message.reply({ embeds: [Embed.warning('Provide an action ID.').toJSON()] });
-      cancelScheduled(guildId, id);
+      if (!cancelScheduled(guildId, id)) return message.reply({ embeds: [Embed.warning(`No scheduled action #${id} in this server.`).toJSON()] });
       return message.reply({ embeds: [Embed.success(`Cancelled scheduled action #${id}.`).toJSON()] });
     }
 
@@ -48,9 +48,11 @@ export default {
       const durationS = parseDuration(args[3]);
       const content   = args.slice(4).join(' ');
 
-      const validTypes = ['message', 'lock', 'unlock', 'announcement'];
-      if (!validTypes.includes(type) || !channelId || !durationS) {
-        return message.reply({ embeds: [Embed.warning(`Usage: \`${prefix}schedule add <${validTypes.join('|')}> #channel <duration> [content]\``).toJSON()] });
+      if (!SCHEDULE_TYPES.includes(type) || !channelId || !durationS) {
+        return message.reply({ embeds: [Embed.warning(`Usage: \`${prefix}schedule add <${SCHEDULE_TYPES.join('|')}> #channel <duration> [content]\``).toJSON()] });
+      }
+      if (content.length > SCHEDULE_MAX_CONTENT) {
+        return message.reply({ embeds: [Embed.warning(`Keep the message under ${SCHEDULE_MAX_CONTENT} characters.`).toJSON()] });
       }
       if (!await isChannelInGuild(client, guildId, channelId)) {
         return message.reply({ embeds: [Embed.danger('That channel is not in this server.').toJSON()] });

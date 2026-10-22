@@ -159,6 +159,25 @@ export async function handleConfig({ message, client, prefix, guildId, subCmd, r
       return;
     }
 
+    // ── !ticket closeemoji <emoji|reset> ────────────────────
+    // The emoji on a ticket's close button, as on the dashboard.
+    case 'closeemoji': {
+      const raw = rest[0]?.trim();
+      if (!raw) {
+        await message.reply({ embeds: [Embed.warning(`Usage: \`${PREFIX}ticket closeemoji <emoji>\` or \`reset\` for ❌`).toJSON()] }).catch(() => {});
+        return;
+      }
+      const reset = raw.toLowerCase() === 'reset';
+      // An emoji, or a custom one as <:name:id>; nothing long or with spaces.
+      if (!reset && (raw.length > 64 || /\s/.test(raw) || /^[\w#@!.]+$/.test(raw))) {
+        await message.reply({ embeds: [Embed.warning('That doesn\'t look like an emoji. Use one emoji, like 🔒.').toJSON()] }).catch(() => {});
+        return;
+      }
+      setTicketField(guildId, 'close_emoji', reset ? null : raw);
+      await message.reply({ embeds: [Embed.success(`Close button emoji set to ${reset ? '❌ (the default)' : raw}. New tickets use it.`).toJSON()] }).catch(() => {});
+      return;
+    }
+
     // ── !ticket delay <seconds> ─────────────────────────────
     // How long a closed ticket's closing notice stays up before the channel
     // is deleted. Persisted (not just an in-memory timer), see
@@ -283,6 +302,7 @@ export async function handleConfig({ message, client, prefix, guildId, subCmd, r
           { name: 'Panel Title',     value: cfg.title,                                          inline: true },
           { name: 'Panel Message',   value: cfg.panel_message_id ? `\`${cfg.panel_message_id}\`` : '❌ not posted', inline: true },
           { name: 'Delete Delay',    value: `${cfg.close_delay_seconds ?? 10}s`,                 inline: true },
+          { name: 'Close Emoji',     value: cfg.close_emoji || '❌',                             inline: true },
           { name: 'Options',         value: options.length
             ? options.map(o => `${o.emoji} ${o.label}`).join('\n')
             : '❌ none',
@@ -297,5 +317,5 @@ export async function handleConfig({ message, client, prefix, guildId, subCmd, r
 
 export const CONFIG_SUBCOMMANDS = new Set([
   'setup', 'channel', 'category', 'role', 'title', 'description',
-  'icon', 'banner', 'color', 'delay', 'remove', 'panel', 'status',
+  'icon', 'banner', 'color', 'delay', 'remove', 'panel', 'status', 'closeemoji',
 ]);

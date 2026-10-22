@@ -26,7 +26,7 @@ Everything below runs from chat commands, with the prefix you choose (`b!` by de
 ## What's not included
 
 - **The economy.** Bloo's economy game (coins, jobs, the shop, NPCs, crafting, expeditions and the rest) isn't part of this release and can't be switched on. Its code isn't in this repository, so there's nothing to enable.
-- **The web dashboard.** Everything here is set up with chat commands instead. Commands that manage dashboard access, such as `b!dash`, still run, but there's nothing for them to connect to. A few things only the dashboard can do (analytics, the server insights page, switching welcome card uploads off) stay at their defaults.
+- **The web dashboard.** Everything here is set up with chat commands instead. Commands that manage dashboard access, such as `b!dash`, still run, but there's nothing for them to connect to. A few things only the dashboard can do (the server insights page, switching welcome card uploads off) stay at their defaults.
 - **The website, docs site and status page** at bloo-bot.xyz, including posting status updates to Fluxer.
 - **Web captcha verification.** It sends members to a verification page on my website, which your copy doesn't have. Use the in-DM image captcha instead (see [Before you invite it](#before-you-invite-it)).
 - **My hosting setup:** my deploy scripts, server config, local development launcher, and the watchdog service that restarts the official bot. You pick your own way of keeping your copy running.

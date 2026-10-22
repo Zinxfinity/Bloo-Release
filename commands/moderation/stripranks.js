@@ -8,9 +8,7 @@
 
 import { Embed }                              from '../../config/embeds.js';
 import { isRealOwner, isBotOwner }            from '../../handlers/staffSystem.js';
-import { canActOnLive, botCanActOnLive }      from '../../config/guildPermissions.js';
-import { sendModLog }                         from '../../handlers/modLog.js';
-import { alertWatchlist }                     from '../../handlers/watchlist.js';
+import { stripMemberRoles, StripRanksError } from '../../handlers/stripRanks.js';
 import { Permissions } from '../../config/guildPermissions.js';
 
 function parseUserId(arg) {
@@ -56,52 +54,25 @@ export default {
     }
     const reason = reasonParts.join(' ') || 'No reason provided';
 
-    const member = await client.rest.get(`/guilds/${guildId}/members/${targetId}`).catch(() => null);
-    if (!member) {
-      await message.reply({ embeds: [Embed.danger('Not Found').setDescription('That user is not in this server.').toJSON()] }).catch(() => {});
+    // Checks, removal, mod log and watchlist alert are shared with the
+    // dashboard's Actions page (handlers/stripRanks.js).
+    let status = null, result;
+    try {
+      result = await stripMemberRoles(client, guildId, {
+        targetId, executorId: message.author.id, executorIsOwner: authorIsOwner,
+        keep: [...keepRoleIds], reason,
+        onStart: async n => {
+          status = await message.reply({
+            embeds: [Embed.info('Stripping Roles…').setDescription(`Removing ${n} role(s) from <@${targetId}>…`).toJSON()],
+          });
+        },
+      });
+    } catch (err) {
+      if (!(err instanceof StripRanksError)) throw err;
+      await message.reply({ embeds: [Embed.warning('Cannot Strip Roles').setDescription(err.message).toJSON()] }).catch(() => {});
       return;
     }
-    if (targetId === message.author.id) {
-      await message.reply({ embeds: [Embed.danger('Invalid Target').setDescription('You cannot strip your own roles.').toJSON()] }).catch(() => {});
-      return;
-    }
-
-    if (!authorIsOwner && !(await canActOnLive(client, guildId, message.author.id, targetId))) {
-      await message.reply({ embeds: [Embed.danger('Cannot Modify').setDescription(`<@${targetId}> holds a Fluxer role position equal to or above yours.`).toJSON()] }).catch(() => {});
-      return;
-    }
-
-    // Check bot can act. Executor-vs-target hierarchy was already checked
-    // above (with the owner exemption); re-running canActOnLive here without
-    // that exemption would block an owner who just correctly passed it.
-    const canBot = await botCanActOnLive(client, guildId, targetId);
-    if (!canBot) {
-      await message.reply({ embeds: [Embed.denied('higher role in the Fluxer hierarchy').toJSON()] }).catch(() => {});
-      return;
-    }
-
-    const memberRoles = (member.roles ?? []).filter(id => id !== guildId && !keepRoleIds.has(id));
-    if (!memberRoles.length) {
-      await message.reply({ embeds: [Embed.info('No Roles').setDescription('This member has no removable roles.').toJSON()] }).catch(() => {});
-      return;
-    }
-
-    const status = await message.reply({
-      embeds: [Embed.info('Stripping Roles…').setDescription(`Removing ${memberRoles.length} role(s) from <@${targetId}>…`).toJSON()],
-    });
-
-    let removed = 0, failed = 0;
-    for (const roleId of memberRoles) {
-      const ok = await client.rest.delete(`/guilds/${guildId}/members/${targetId}/roles/${roleId}`)
-        .then(() => true).catch(() => false);
-      if (ok) removed++; else failed++;
-    }
-
-    await sendModLog(client, guildId, {
-      action: 'Roles Stripped', targetId,
-      executorId: message.author.id, reason,
-    });
-    await alertWatchlist(client, guildId, targetId, `Roles Stripped (${removed} removed)`, reason);
+    const { removed, failed } = result;
 
     await status?.edit({
       embeds: [

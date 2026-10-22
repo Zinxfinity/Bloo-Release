@@ -72,9 +72,14 @@ export function listScheduled(guildId) {
   });
 }
 
+// True when something was cancelled.
 export function cancelScheduled(guildId, actionId) {
-  stmts.delete.run(actionId, guildId);
+  return stmts.delete.run(actionId, guildId).changes > 0;
 }
+
+// What b!schedule and the dashboard's Scheduled Actions page can set up.
+export const SCHEDULE_TYPES = ['message', 'announcement', 'lock', 'unlock'];
+export const SCHEDULE_MAX_CONTENT = 2000;
 
 // ─── initSchedule ─────────────────────────────────────────────────────────────
 let _schedTimer = null;

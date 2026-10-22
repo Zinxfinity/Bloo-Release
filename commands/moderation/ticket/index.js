@@ -49,6 +49,7 @@ import { handleCase } from './case.js';
 import { handleBlacklist } from './blacklist.js';
 import { handleType } from './type.js';
 import { handlePerms, handleAllowDeny } from './perms.js';
+import { handleReopen } from './reopen.js';
 import { Permissions } from '../../../config/guildPermissions.js';
 
 const STAFF_PERMISSION = Permissions.BAN_MEMBERS;
@@ -58,7 +59,7 @@ export default {
   name: 'ticket',
   aliases: ['tickets', 'tk'],
   description: 'Configure the support ticket system: panel, categories, and options.',
-  usage: '{prefix}ticket <panel | category | option | status | role | icon | color | blacklist>',
+  usage: '{prefix}ticket <panel | category | option | status | role | icon | color | closeemoji | blacklist | reopen>',
 
   // Open at the command level so a ticket opener can run `!ticket close` in
   // their own ticket. Every other subcommand is gated below (config) or
@@ -97,6 +98,7 @@ export default {
     if (subCmd === 'blacklist')         return handleBlacklist(ctx);
     if (subCmd === 'perms' || subCmd === 'permissions') return handlePerms(ctx);
     if (subCmd === 'allow' || subCmd === 'deny')         return handleAllowDeny(ctx);
+    if (subCmd === 'reopen')            return handleReopen(ctx);
 
     const staffLabel = requirementLabel(guildId, 'ticket', STAFF_PERMISSION);
     await message.reply({ embeds: [Embed.info('🎫 Ticket System')
@@ -105,6 +107,7 @@ export default {
           value:
             `\`${PREFIX}ticket setup\`: first-time setup guide\n` +
             `\`${PREFIX}ticket channel/category/role/title/description/icon/banner/color\`: configure the panel\n` +
+            `\`${PREFIX}ticket closeemoji <emoji>\`: the emoji on a ticket's close button\n` +
             `\`${PREFIX}ticket option add/remove/list/message\`: manage reaction options\n` +
             `\`${PREFIX}ticket panel\`: post or repost the panel\n` +
             `\`${PREFIX}ticket panel delete\`: delete the current panel\n` +
@@ -118,7 +121,8 @@ export default {
             `\`${PREFIX}ticket type <keyword>\`: recategorize this ticket (staff only)\n` +
             `\`${PREFIX}ticket allow attach\` / \`deny attach\`: change this ticket's opener (staff only)\n` +
             `\`${PREFIX}ticket blacklist add/remove/list\`: manage the ticket blacklist\n` +
-            `\`${PREFIX}ticket case <id>\`: look up a ticket case`,
+            `\`${PREFIX}ticket case <id>\`: look up a ticket case\n` +
+            `\`${PREFIX}ticket reopen <id>\`: reopen a closed ticket in a new channel (staff)`,
           inline: false },
       )
       .setFooter({ text: 'Tip: use [\\n] in title/description for line breaks' })

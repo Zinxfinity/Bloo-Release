@@ -705,6 +705,17 @@ export function addFeed(guildId, name, url, channelId, intervalM, pingRoleId, ad
   return stmts.add.run(guildId, name, url, channelId, intervalM ?? 30, pingRoleId ?? null, ...extraValues).lastInsertRowid;
 }
 
+// Edit a feed in place (b!webhook edit/ping, the dashboard's edit form).
+// Only the fields given change. Returns false if the feed isn't in this server.
+export function updateFeed(guildId, feedId, fields) {
+  const cols = { name: 'name', url: 'url', channelId: 'channel_id', intervalM: 'interval_m', pingRoleId: 'ping_role_id' };
+  const sets = [], vals = [];
+  for (const [k, col] of Object.entries(cols)) if (fields[k] !== undefined) { sets.push(`${col} = ?`); vals.push(fields[k]); }
+  if (fields.name !== undefined && _feedCols.includes('display_name')) { sets.push('display_name = ?'); vals.push(fields.name); }
+  if (!sets.length) return false;
+  return db.prepare(`UPDATE webhook_feeds SET ${sets.join(', ')} WHERE id = ? AND guild_id = ?`).run(...vals, feedId, guildId).changes > 0;
+}
+
 export function removeFeed(guildId, feedId) {
   stmts.remove.run(feedId, guildId);
 }

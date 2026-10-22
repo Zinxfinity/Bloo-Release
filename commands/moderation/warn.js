@@ -6,6 +6,7 @@ import { resolveAccess } from '../../handlers/commandPermissions.js';
 import { logAction } from '../../handlers/modLog.js';
 import {
   addWarning, getWarnings, getActiveWarnings, removeWarning,
+  setWarnDecay, setWarnLogChannel, postWarnChannels,
   getActiveWarnCount, getThresholdForCount, getThresholds,
   getWarnConfig, setWarnChannel, setThreshold, removeThreshold,
   addTempban,
@@ -25,7 +26,7 @@ export default {
   name: 'warn',
   aliases: ['w', 'warns', 'warnings'],
   description: 'Warn a member. Subcommands: warnings, remove, clear, config.',
-  usage: '{prefix}warn <@user|id> [reason]\n{prefix}warns <@user|id>\n{prefix}warn remove <id>\n{prefix}warn clear <@user|id>\n{prefix}warn config [threshold|warnlog]',
+  usage: '{prefix}warn <@user|id> [reason]\n{prefix}warns <@user|id>\n{prefix}warn remove <id>\n{prefix}warn clear <@user|id>\n{prefix}warn config [threshold|warnlog|notice|decay]',
   requiredPermission: Permissions.KICK_MEMBERS,
 
   cooldown: 3,
@@ -58,7 +59,7 @@ export default {
             `**View warns:**    \`${prefix}warns @user\``,
             `**Remove warn:**   \`${prefix}warn remove <id>\``,
             `**Clear all:**     \`${prefix}warn clear @user\``,
-            `**Config:**        \`${prefix}warn config threshold|warnlog\``,
+            `**Config:**        \`${prefix}warn config threshold|warnlog|notice|decay\``,
           ].join('\n'),
           'Warn, Usage'
         ).toJSON()],
@@ -76,8 +77,10 @@ export default {
       return message.reply({ embeds: [Embed.denied('You cannot warn someone with an equal or higher rank.').toJSON()] });
     }
 
-    const { id: warnId } = addWarning(guildId, targetId, executorId, reason);
+    const { id: warnId, expiresAt } = addWarning(guildId, targetId, executorId, reason);
     const warnCount = getActiveWarnCount(guildId, targetId);
+    // The server's warning log and notice channels, same as dashboard warnings.
+    await postWarnChannels(client, guildId, { userId: targetId, modId: executorId, reason, count: warnCount, warnId, expiresAt });
 
     const targetUser = await client.rest.get(`/users/${targetId}`).catch(() => null);
     const targetTag  = targetUser?.username ?? targetId;
@@ -225,12 +228,27 @@ async function handleConfig(client, message, args, guildId, executorId, prefix) 
     return message.reply({ embeds: [Embed.success(`Set threshold: **${count}** warns → **${action}**${durS ? ` (${args[3]})` : ''}.`).toJSON()] });
   }
 
-  if (sub === 'warnlog') {
+  // Two channels, as on the dashboard: `warnlog` is the staff log (moderator,
+  // count, case ID), `notice` a public notice. `warnlog` used to set the
+  // notice channel, so existing servers keep that value under `notice`.
+  if (sub === 'warnlog' || sub === 'notice') {
     const chRaw = args[1];
-    if (!chRaw) return message.reply({ embeds: [Embed.warning(`Usage: \`${prefix}warn config warnlog #channel\``).toJSON()] });
-    const chId = chRaw.replace(/\D/g, '');
-    setWarnChannel(guildId, chId);
-    return message.reply({ embeds: [Embed.success(`Warn log channel set to <#${chId}>.`).toJSON()] });
+    const label = sub === 'warnlog' ? 'Warning log' : 'Warning notice channel';
+    if (!chRaw) return message.reply({ embeds: [Embed.warning(`Usage: \`${prefix}warn config ${sub} #channel\` or \`off\``).toJSON()] });
+    const chId = chRaw.toLowerCase() === 'off' ? null : chRaw.replace(/\D/g, '');
+    if (chRaw.toLowerCase() !== 'off' && !chId) return message.reply({ embeds: [Embed.warning('Mention a channel, or use `off`.').toJSON()] });
+    if (sub === 'warnlog') setWarnLogChannel(guildId, chId); else setWarnChannel(guildId, chId);
+    return message.reply({ embeds: [Embed.success(chId ? `${label} set to <#${chId}>.` : `${label} turned off.`).toJSON()] });
+  }
+
+  // Warning decay: warnings stop counting after this many days.
+  if (sub === 'decay') {
+    const raw = args[1]?.toLowerCase();
+    if (raw === 'off') { setWarnDecay(guildId, null); return message.reply({ embeds: [Embed.success('Warning decay off. Warnings count until they are removed.').toJSON()] }); }
+    const days = Number(raw);
+    if (!Number.isInteger(days) || days < 1 || days > 365) return message.reply({ embeds: [Embed.warning(`Usage: \`${prefix}warn config decay <days 1-365|off>\``).toJSON()] });
+    setWarnDecay(guildId, days);
+    return message.reply({ embeds: [Embed.success(`New warnings now stop counting after **${days} day${days === 1 ? '' : 's'}**. Warnings given before this keep their old expiry.`).toJSON()] });
   }
 
   // Show current config
@@ -245,10 +263,12 @@ async function handleConfig(client, message, args, guildId, executorId, prefix) 
       .setColor(COLORS.INFO)
       .setTitle('Warn Config')
       .addFields(
-        { name: 'Warn Log',    value: cfg?.warn_channel_id ? `<#${cfg.warn_channel_id}>` : 'Not set', inline: true },
+        { name: 'Warning Log',    value: cfg?.warnlog_channel_id ? `<#${cfg.warnlog_channel_id}>` : 'Not set', inline: true },
+        { name: 'Public Notice',  value: cfg?.warn_channel_id ? `<#${cfg.warn_channel_id}>` : 'Not set', inline: true },
+        { name: 'Decay',          value: cfg?.decay_enabled ? `After ${Math.round(cfg.decay_ms / 86_400_000)} days` : 'Off', inline: true },
         { name: 'Thresholds',  value: thresholdLines, inline: false },
       )
-      .setFooter({ text: `Use "${prefix}warn config threshold|warnlog" to update` })
+      .setFooter({ text: `${prefix}warn config <threshold|warnlog|notice|decay> to update` })
       .toJSON()],
   });
 }

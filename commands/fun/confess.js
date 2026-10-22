@@ -28,19 +28,9 @@ import {
   isBlacklisted, blacklistConfessionUser, unblacklistConfessionUser,
   createConfession, getConfession, getPendingConfessions,
   setConfessionStatus, revealConfessionAuthor,
+  approveConfession, denyConfession, ConfessionError,
+  confessionEmbed, CONFESSION_COLOR,
 } from '../../handlers/confessionSystem.js';
-
-const CONFESSION_COLOR = 0xa78bfa; // purple
-
-function buildConfessionEmbed(id, content, replyTo) {
-  const embed = new EmbedBuilder()
-    .setTitle(replyTo ? `💜  Anonymous Reply to Confession #${replyTo}` : `💜  Anonymous Confession #${id}`)
-    .setDescription(content)
-    .setColor(CONFESSION_COLOR)
-    .setFooter({ text: `Confession #${id} • Submitted anonymously` })
-    .setTimestamp();
-  return embed;
-}
 
 // ── DM handler ────────────────────────────────────────────────
 export async function handleConfessDM(message, client) {
@@ -95,15 +85,14 @@ export async function handleConfessDM(message, client) {
           .setTitle(`📋  Pending Confession #${id}`)
           .setDescription(text)
           .setColor(0xfbbf24)
-          .setFooter({ text: `Use !confess approve ${id} or !confess deny ${id}` })
+          .setFooter({ text: `Use ${process.env.PREFIX || 'b!'}confess approve ${id} or deny ${id}, or the dashboard's Confessions page` })
           .setTimestamp();
         await client.rest.post(`/channels/${cfg.mod_channel_id}/messages`, { body: { embeds: [pendingEmbed.toJSON()] } });
       } catch { /* non-fatal */ }
       await message.reply({ embeds: [Embed.success('Confession Submitted').setDescription('Your confession is pending moderator approval and will be posted once reviewed.').toJSON()] }).catch(() => {});
     } else {
       // Post directly
-      const embed = buildConfessionEmbed(id, text, null);
-      const msg = await client.rest.post(`/channels/${cfg.channel_id}/messages`, { body: { embeds: [embed.toJSON()] } }).catch(() => null);
+      const msg = await client.rest.post(`/channels/${cfg.channel_id}/messages`, { body: { embeds: [confessionEmbed(id, text, null)] } }).catch(() => null);
       if (!msg) {
         await message.reply({ embeds: [Embed.warning('Error').setDescription('Couldn\'t reach the confession channel. Please try again later.').toJSON()] }).catch(() => {});
         return;
@@ -147,8 +136,7 @@ export async function handleConfessDM(message, client) {
     }
 
     const id = createConfession({ guildId, authorId: message.author.id, content: text, replyTo });
-    const embed = buildConfessionEmbed(id, text, replyTo);
-    const msg = await client.rest.post(`/channels/${cfg.channel_id}/messages`, { body: { embeds: [embed.toJSON()] } }).catch(() => null);
+    const msg = await client.rest.post(`/channels/${cfg.channel_id}/messages`, { body: { embeds: [confessionEmbed(id, text, replyTo)] } }).catch(() => null);
     if (!msg) return;
     setConfessionStatus(id, 'posted', msg.id);
     await message.reply({ embeds: [Embed.success('Reply Posted').setDescription(`Your reply to confession #${replyTo} has been posted anonymously as **#${id}**.`).toJSON()] }).catch(() => {});
@@ -225,30 +213,22 @@ export default {
         break;
       }
 
-      case 'approve': {
-        const id = parseInt(rest[0], 10);
-        const c  = id ? getConfession(id) : null;
-        if (!c || c.guild_id !== guildId || c.status !== 'pending') {
-          await message.reply({ embeds: [Embed.warning('Not Found').setDescription('No pending confession with that ID.').toJSON()] }).catch(() => {});
-          return;
-        }
-        const embed = buildConfessionEmbed(id, c.content, c.reply_to);
-        const msg = await client.rest.post(`/channels/${cfg.channel_id}/messages`, { body: { embeds: [embed.toJSON()] } }).catch(() => null);
-        if (!msg) { await message.reply({ embeds: [Embed.danger('No Channel').toJSON()] }); return; }
-        setConfessionStatus(id, 'posted', msg.id);
-        await message.reply({ embeds: [Embed.success(`Confession #${id} Approved`).setDescription('Posted to the confession channel.').toJSON()] }).catch(() => {});
-        break;
-      }
-
+      case 'approve':
       case 'deny': {
+        // Shared with the dashboard's Confessions page (handlers/confessionSystem.js).
         const id = parseInt(rest[0], 10);
-        const c  = id ? getConfession(id) : null;
-        if (!c || c.guild_id !== guildId || c.status !== 'pending') {
-          await message.reply({ embeds: [Embed.warning('Not Found').toJSON()] }).catch(() => {});
-          return;
+        try {
+          if (sub.toLowerCase() === 'approve') {
+            await approveConfession(client, guildId, id);
+            await message.reply({ embeds: [Embed.success(`Confession #${id} Approved`).setDescription('Posted to the confession channel.').toJSON()] }).catch(() => {});
+          } else {
+            denyConfession(guildId, id);
+            await message.reply({ embeds: [Embed.success(`Confession #${id} Denied`).setDescription('Confession removed. The user was not notified.').toJSON()] }).catch(() => {});
+          }
+        } catch (err) {
+          if (!(err instanceof ConfessionError)) throw err;
+          await message.reply({ embeds: [Embed.warning('Not Done').setDescription(err.message).toJSON()] }).catch(() => {});
         }
-        setConfessionStatus(id, 'denied', null);
-        await message.reply({ embeds: [Embed.success(`Confession #${id} Denied`).setDescription('Confession removed. The user was not notified.').toJSON()] }).catch(() => {});
         break;
       }
 

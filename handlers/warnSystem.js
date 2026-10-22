@@ -206,9 +206,62 @@ const stmts = {
 };
 
 // ─── addWarning ───────────────────────────────────────────────────────────────
+// With warning decay on, the warning gets an expiry (unix seconds) and stops
+// counting after it, the same as warnings given on the dashboard. Warnings
+// from b!warn used to be stored without one, so they never decayed.
 export function addWarning(guildId, userId, executorId, reason) {
-  const result = stmts.addWarn.run(guildId, userId, executorId, reason ?? null);
-  return { id: result.lastInsertRowid };
+  const cfg = getWarnConfig(guildId);
+  const expiresAt = cfg?.decay_enabled && cfg.decay_ms > 0 ? Math.floor((Date.now() + cfg.decay_ms) / 1000) : null;
+  const result = db.prepare(`INSERT INTO warnings (guild_id, user_id, executor_id, reason, expires_at) VALUES (?, ?, ?, ?, ?)`)
+    .run(guildId, userId, executorId, reason ?? null, expiresAt);
+  return { id: result.lastInsertRowid, expiresAt };
+}
+
+// Warning decay: days until a warning stops counting, or null for never.
+export function setWarnDecay(guildId, days) {
+  stmts.ensureConfig.run(guildId);
+  db.prepare('UPDATE warn_config SET decay_enabled = ?, decay_ms = COALESCE(?, decay_ms) WHERE guild_id = ?')
+    .run(days ? 1 : 0, days ? Math.round(days * 86_400_000) : null, guildId);
+}
+
+// The staff warning log (moderator, count, case ID), separate from the
+// public notice channel set by setWarnChannel.
+export function setWarnLogChannel(guildId, channelId) {
+  stmts.ensureConfig.run(guildId);
+  db.prepare('UPDATE warn_config SET warnlog_channel_id = ? WHERE guild_id = ?').run(channelId, guildId);
+}
+
+// Posts a warning to the server's warning channels, as dashboard warnings do:
+// the staff log gets the moderator and case details, the notice channel a
+// short public notice. Best effort; a missing channel never stops the warn.
+export async function postWarnChannels(client, guildId, { userId, modId, reason, count, warnId, expiresAt }) {
+  const cfg = getWarnConfig(guildId);
+  const max = cfg?.max_warns ?? 3;
+  const post = (ch, embed) => client.rest.post(`/channels/${ch}/messages`, { body: { embeds: [embed], allowed_mentions: { parse: [] } } }).catch(() => {});
+  if (cfg?.warnlog_channel_id) {
+    await post(cfg.warnlog_channel_id, {
+      title: '🟡 Warning Issued', color: 0xFEE75C, timestamp: new Date().toISOString(),
+      fields: [
+        { name: '🎯 User', value: `<@${userId}> \`${userId}\``, inline: true },
+        { name: '👮 Moderator', value: `<@${modId}>`, inline: true },
+        { name: '📋 Reason', value: reason, inline: false },
+        { name: '📊 Count', value: `${count} / ${max}`, inline: true },
+        { name: '🆔 Case ID', value: `\`${warnId}\``, inline: true },
+        ...(expiresAt ? [{ name: '⏳ Expires', value: `<t:${expiresAt}:R>`, inline: true }] : []),
+      ],
+    });
+  }
+  if (cfg?.warn_channel_id) {
+    await post(cfg.warn_channel_id, {
+      title: '⚠️ Warning', color: 0xFEE75C, timestamp: new Date().toISOString(),
+      fields: [
+        { name: '🎯 User', value: `<@${userId}>`, inline: true },
+        { name: '📋 Reason', value: reason, inline: false },
+        { name: '📊 Total', value: `${count} / ${max}`, inline: true },
+        { name: '🆔 Case ID', value: `\`${warnId}\``, inline: true },
+      ],
+    });
+  }
 }
 
 // ─── getActiveWarnCount ───────────────────────────────────────────────────────

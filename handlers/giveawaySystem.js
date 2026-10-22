@@ -109,6 +109,11 @@ for (const col of [
   `ALTER TABLE giveaways ADD COLUMN entries TEXT NOT NULL DEFAULT '[]'`,
   `ALTER TABLE giveaways ADD COLUMN winners TEXT NOT NULL DEFAULT '[]'`,
   `ALTER TABLE giveaways ADD COLUMN blacklist TEXT NOT NULL DEFAULT '[]'`,
+  // Pausing: paused stops entries and holds the end; paused_at lets resume
+  // push the end back by however long it was paused.
+  `ALTER TABLE giveaways ADD COLUMN paused INTEGER NOT NULL DEFAULT 0`,
+  `ALTER TABLE giveaways ADD COLUMN paused_at INTEGER`,
+  `ALTER TABLE giveaways ADD COLUMN extend_count INTEGER NOT NULL DEFAULT 0`,
 ]) {
   try { db.exec(col); } catch { /* already exists */ }
 }
@@ -134,10 +139,10 @@ const stmts = {
     SELECT * FROM giveaways WHERE status = 'scheduled' AND starts_at <= unixepoch()
   `),
   expired: db.prepare(`
-    SELECT * FROM giveaways WHERE status = 'live' AND ends_at <= unixepoch()
+    SELECT * FROM giveaways WHERE status = 'live' AND ends_at <= unixepoch() AND COALESCE(paused, 0) = 0
   `),
   needsReminder: db.prepare(`
-    SELECT * FROM giveaways WHERE status = 'live' AND reminder_sent = 0
+    SELECT * FROM giveaways WHERE status = 'live' AND reminder_sent = 0 AND COALESCE(paused, 0) = 0
     AND ends_at <= unixepoch() + 300 AND ends_at > unixepoch()
   `),
 
@@ -436,6 +441,7 @@ export function startGiveawayPoller(client) {
 export async function handleGiveawayReaction(client, giveawayId, userId) {
   const gw = getGiveaway(giveawayId);
   if (!gw || gw.status !== 'live') return false;
+  if (gw.paused) return false; // no entries while paused
 
   if (stmts.isBlacklisted.get(giveawayId, userId)) return false;
   if (isEntered(giveawayId, userId)) return false;
@@ -466,6 +472,94 @@ export async function handleGiveawayReaction(client, giveawayId, userId) {
   }
 
   return true;
+}
+
+// ─── Managing a giveaway (b!giveaway and the dashboard share these) ──────────
+// Each works on the tables the bot actually reads: giveaway_entries,
+// giveaway_winners, giveaway_blacklist and giveaway_bonus. The dashboard
+// used to write JSON columns on giveaways instead, which nothing read, so
+// its blacklist, bonus entries, reroll and entry list did nothing.
+export class GiveawayError extends Error {}
+function ownGiveaway(guildId, id) {
+  const gw = getGiveaway(Number(id));
+  if (!gw || gw.guild_id !== guildId) throw new GiveawayError(`No giveaway #${id} in this server.`);
+  return gw;
+}
+const running = gw => { if (gw.status === 'ended') throw new GiveawayError(`Giveaway #${gw.id} has already ended.`); return gw; };
+
+export function pauseGiveaway(guildId, id) {
+  const gw = running(ownGiveaway(guildId, id));
+  if (gw.paused) throw new GiveawayError(`Giveaway #${gw.id} is already paused.`);
+  db.prepare('UPDATE giveaways SET paused = 1, paused_at = unixepoch() WHERE id = ?').run(gw.id);
+}
+
+// The end moves back by however long it was paused, so nobody loses time.
+export function resumeGiveaway(guildId, id) {
+  const gw = running(ownGiveaway(guildId, id));
+  if (!gw.paused) throw new GiveawayError(`Giveaway #${gw.id} isn't paused.`);
+  db.prepare(`UPDATE giveaways SET paused = 0, ends_at = ends_at + MAX(0, unixepoch() - COALESCE(paused_at, unixepoch())), paused_at = NULL WHERE id = ?`).run(gw.id);
+  return getGiveaway(gw.id);
+}
+
+export function extendGiveaway(guildId, id, seconds) {
+  const gw = running(ownGiveaway(guildId, id));
+  if (!Number.isFinite(seconds) || seconds <= 0 || seconds > 90 * 86400) throw new GiveawayError('Extend by a length from 1 minute to 90 days, like 30m, 2h or 3d.');
+  db.prepare('UPDATE giveaways SET ends_at = ends_at + ?, extend_count = COALESCE(extend_count, 0) + 1 WHERE id = ?').run(Math.round(seconds), gw.id);
+  return getGiveaway(gw.id);
+}
+
+// Fields a running giveaway can change.
+export function editGiveaway(guildId, id, field, value) {
+  const gw = running(ownGiveaway(guildId, id));
+  const cols = { prize: 'prize', description: 'description', winners: 'winner_count', role: 'required_role_id', level: 'min_level', days: 'min_days', ping: 'ping_role_id' };
+  const col = cols[field];
+  if (!col) throw new GiveawayError(`You can change: ${Object.keys(cols).join(', ')}.`);
+  if (col === 'winner_count' && !(Number.isInteger(value) && value >= 1 && value <= 20)) throw new GiveawayError('Winners must be from 1 to 20.');
+  if ((col === 'min_level' || col === 'min_days') && value != null && !(Number.isInteger(value) && value >= 0 && value <= 10000)) throw new GiveawayError('Use a whole number, or off.');
+  if (col === 'prize' && (!value || String(value).length > 200)) throw new GiveawayError('The prize needs a name, up to 200 characters.');
+  db.prepare(`UPDATE giveaways SET ${col} = ? WHERE id = ?`).run(value ?? null, gw.id);
+  return getGiveaway(gw.id);
+}
+
+export function setGiveawayBlacklist(guildId, id, userId, add) {
+  const gw = ownGiveaway(guildId, id);
+  if (add) {
+    stmts.addBlacklist.run(gw.id, userId);
+    stmts.removeEntry.run(gw.id, userId); // someone blocked can't stay entered
+  } else {
+    stmts.removeBlacklist.run(gw.id, userId);
+  }
+}
+
+// Extra entries for members with a role (0 or null removes the bonus).
+export function setGiveawayBonus(guildId, id, roleId, extraEntries) {
+  const gw = ownGiveaway(guildId, id);
+  if (!extraEntries) { db.prepare('DELETE FROM giveaway_bonus WHERE giveaway_id = ? AND role_id = ?').run(gw.id, roleId); return; }
+  if (!Number.isInteger(extraEntries) || extraEntries < 1 || extraEntries > 19) throw new GiveawayError('Bonus entries must be from 1 to 19 extra.');
+  stmts.setBonusRole.run(gw.id, roleId, extraEntries);
+}
+
+export function listGiveawayBonuses(giveawayId) {
+  return stmts.getBonusRoles.all(Number(giveawayId));
+}
+
+export function listGiveawayEntries(giveawayId) {
+  return stmts.getEntries.all(Number(giveawayId));
+}
+
+export function listGiveawayBlacklist(giveawayId) {
+  return db.prepare('SELECT user_id FROM giveaway_blacklist WHERE giveaway_id = ?').all(Number(giveawayId)).map(r => r.user_id);
+}
+
+export function deleteGiveaway(guildId, id) {
+  const gw = ownGiveaway(guildId, id);
+  db.transaction(() => {
+    for (const t of ['giveaway_entries', 'giveaway_winners', 'giveaway_blacklist', 'giveaway_bonus']) {
+      try { db.prepare(`DELETE FROM ${t} WHERE giveaway_id = ?`).run(gw.id); } catch { /* table may not exist on old installs */ }
+    }
+    db.prepare('DELETE FROM giveaways WHERE id = ?').run(gw.id);
+  })();
+  return gw;
 }
 
 export { stmts as _giveawayStmts };

@@ -1,6 +1,6 @@
 import { EmbedBuilder } from '@fluxerjs/core';
 import { Embed, COLORS } from '../../config/embeds.js';
-import { addFeed, removeFeed, listFeeds, setFeedEnabled } from '../../handlers/webhookPoller.js';
+import { addFeed, removeFeed, listFeeds, setFeedEnabled, updateFeed, refreshFeedNow } from '../../handlers/webhookPoller.js';
 import { Permissions } from '../../config/guildPermissions.js';
 import { isChannelInGuild } from '../../utils/channelGuard.js';
 import { missingPermissions } from '../../utils/channelPermissions.js';
@@ -29,7 +29,7 @@ export default {
   name: 'webhook',
   aliases: ['feed', 'rss'],
   description: 'Manage RSS/Atom/JSON feed subscriptions, including X/Twitter via twitter:<handle>.',
-  usage: '{prefix}webhook <add|remove|list|enable|disable> [args]',
+  usage: '{prefix}webhook <add|edit|ping|check|remove|list|enable|disable> [args]',
   requiredPermission: Permissions.BAN_MEMBERS,
 
   cooldown: 5,
@@ -93,6 +93,63 @@ export default {
       return message.reply({ embeds: [Embed.success(`Feed **${name}** added (ID: #${id}). Checking every ${interval}m.`).toJSON()] });
     }
 
+    // ── edit / ping / check: the rest of the dashboard's feed controls ──────
+    //   b!webhook edit <id> name|url|channel|interval <value>
+    //   b!webhook ping <id> @role|off
+    //   b!webhook check <id>      check now instead of waiting for the interval
+    if (sub === 'edit' || sub === 'ping' || sub === 'check') {
+      const id = parseInt(args[1], 10);
+      const feed = id ? listFeeds(guildId).find(f => f.id === id) : null;
+      if (!feed) return message.reply({ embeds: [Embed.warning(`Give a feed ID from \`${prefix}webhook list\`.`).toJSON()] });
+
+      if (sub === 'check') {
+        const r = await refreshFeedNow(client, id);
+        return message.reply({ embeds: [(r.ok ? Embed.success : Embed.warning)(
+          r.ok ? (r.posted ? `Checked feed #${id}: posted ${r.posted} new item${r.posted === 1 ? '' : 's'}.` : `Checked feed #${id}: nothing new.`)
+               : `Feed #${id} couldn't be checked: ${r.reason}.`).toJSON()] });
+      }
+
+      if (sub === 'ping') {
+        const raw = args[2];
+        const roleId = raw?.toLowerCase() === 'off' ? null : raw?.match(/^<@&(\d+)>$/)?.[1] ?? (/^\d{15,25}$/.test(raw ?? '') ? raw : undefined);
+        if (roleId === undefined) return message.reply({ embeds: [Embed.warning(`Usage: \`${prefix}webhook ping <id> @role\` or \`off\``).toJSON()] });
+        updateFeed(guildId, id, { pingRoleId: roleId });
+        return message.reply({ embeds: [Embed.success(roleId ? `New posts from **${feed.name}** will ping <@&${roleId}>.` : `**${feed.name}** no longer pings a role.`).toJSON()] });
+      }
+
+      // edit
+      const field = args[2]?.toLowerCase();
+      const rest = args.slice(3);
+      const usage = `Usage: \`${prefix}webhook edit <id> name|url|channel|interval <value>\``;
+      if (field === 'name') {
+        const name = rest.join(' ').trim().replace(/^["“'‘](.*)["”'’]$/, '$1');
+        if (!name) return message.reply({ embeds: [Embed.warning(usage).toJSON()] });
+        if (name.length > MAX_NAME) return message.reply({ embeds: [Embed.warning(`Feed names can be up to ${MAX_NAME} characters.`).toJSON()] });
+        updateFeed(guildId, id, { name });
+        return message.reply({ embeds: [Embed.success(`Feed #${id} renamed to **${name}**.`).toJSON()] });
+      }
+      if (field === 'url') {
+        if (!looksLikeFeed(rest[0])) return message.reply({ embeds: [Embed.warning('Give a feed address starting with http(s)://, or twitter:handle.').toJSON()] });
+        updateFeed(guildId, id, { url: rest[0] });
+        return message.reply({ embeds: [Embed.success(`Feed #${id} now reads from ${rest[0]}.`).toJSON()] });
+      }
+      if (field === 'channel') {
+        const channelId = rest[0]?.replace(/\D/g, '');
+        if (!channelId || !await isChannelInGuild(client, guildId, channelId)) return message.reply({ embeds: [Embed.danger('Mention a channel in this server.').toJSON()] });
+        const missing = await missingPermissions(p => client.rest.get(p), guildId, channelId, client.user?.id);
+        if (missing?.length) return message.reply({ embeds: [Embed.warning(`I can't post in <#${channelId}> yet. I'm missing: **${missing.join('**, **')}**.`, 'Missing permissions').toJSON()] });
+        updateFeed(guildId, id, { channelId });
+        return message.reply({ embeds: [Embed.success(`Feed #${id} now posts in <#${channelId}>.`).toJSON()] });
+      }
+      if (field === 'interval') {
+        const m = parseInt(rest[0], 10);
+        if (!Number.isFinite(m) || m < 5 || m > 43200) return message.reply({ embeds: [Embed.warning('Interval must be between 5 and 43200 minutes.').toJSON()] });
+        updateFeed(guildId, id, { intervalM: m });
+        return message.reply({ embeds: [Embed.success(`Feed #${id} is now checked every ${m} minutes.`).toJSON()] });
+      }
+      return message.reply({ embeds: [Embed.warning(usage).toJSON()] });
+    }
+
     if (sub === 'remove') {
       const id = parseInt(args[1], 10);
       if (!id) return message.reply({ embeds: [Embed.warning('Provide a feed ID.').toJSON()] });
@@ -119,6 +176,6 @@ export default {
       return message.reply({ embeds: [Embed.success(`Feed #${id} ${enabled ? 'enabled' : 'disabled'}.`).toJSON()] });
     }
 
-    await message.reply({ embeds: [Embed.warning(`Subcommands: \`add\`, \`remove\`, \`list\`, \`enable\`, \`disable\``).toJSON()] });
+    await message.reply({ embeds: [Embed.warning(`Subcommands: \`add\`, \`edit\`, \`ping\`, \`check\`, \`remove\`, \`list\`, \`enable\`, \`disable\``).toJSON()] });
   },
 };

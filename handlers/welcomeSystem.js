@@ -248,6 +248,7 @@ export function setWelcomeField(guildId, field, value) {
     'welcome_card', 'card_theme', 'card_title', 'card_subtitle',
     'card_background', 'card_accent', 'card_title_color', 'card_subtitle_color',
     'goodbye_card', 'goodbye_card_title', 'goodbye_card_subtitle',
+    'welcome_embed', 'welcome_color', 'goodbye_embed', 'goodbye_color',
   ];
   if (!allowed.includes(field)) throw new Error(`Unknown welcome config field: ${field}`);
   stmts.ensure.run(guildId);

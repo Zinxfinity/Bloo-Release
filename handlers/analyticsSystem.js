@@ -159,6 +159,26 @@ export function isAnalyticsEnabled(guildId) {
   try { return !!stmts.isEnabled.get(guildId)?.enabled; } catch { return false; }
 }
 
+// Opt in or out (b!analytics, and the dashboard's own route does the same).
+// The first time it's switched on, the member count is seeded from Fluxer so
+// the joins/leaves graph starts from the real size of the server.
+export async function setAnalyticsEnabled(client, guildId, enabled, by) {
+  const was = isAnalyticsEnabled(guildId);
+  db.prepare(`INSERT INTO analytics_config (guild_id, enabled, enabled_by, enabled_at) VALUES (?, ?, ?, ?)
+              ON CONFLICT(guild_id) DO UPDATE SET enabled = excluded.enabled, enabled_by = excluded.enabled_by, enabled_at = excluded.enabled_at`)
+    .run(guildId, enabled ? 1 : 0, by ?? null, Date.now());
+  if (enabled && !was) {
+    try {
+      db.exec(`CREATE TABLE IF NOT EXISTS guild_member_counts (guild_id TEXT PRIMARY KEY, member_count INTEGER NOT NULL DEFAULT 0, updated_at INTEGER NOT NULL DEFAULT 0)`);
+      if (!db.prepare('SELECT 1 FROM guild_member_counts WHERE guild_id = ?').get(guildId)) {
+        const g = await client.rest.get(`/guilds/${guildId}?with_counts=true`).catch(() => null);
+        const count = g?.approximate_member_count ?? g?.member_count ?? null;
+        if (count != null) db.prepare(`INSERT OR REPLACE INTO guild_member_counts (guild_id, member_count, updated_at) VALUES (?, ?, ?)`).run(guildId, count, Date.now());
+      }
+    } catch { /* graph just starts from the next join */ }
+  }
+}
+
 export function getRetentionDays(guildId) {
   return clampRetentionDays(stmts.getRetention.get(guildId)?.retention_days) ?? MAX_RETENTION_DAYS;
 }

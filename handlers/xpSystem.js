@@ -397,9 +397,14 @@ export function getXpConfig(guildId) {
 }
 
 export function setXpConfigField(guildId, field, value) {
+  // Everything the dashboard's XP settings page can change, so b!xp config
+  // covers the same ground (the release build has no dashboard at all).
   const allowed = [
     'enabled','xp_min','xp_max','xp_cooldown_s',
     'levelup_channel','levelup_message','stack_roles',
+    'levels_enabled','levelup_notify','levelup_color','levelup_image',
+    'role_rewards','role_remove_on_decay',
+    'decay_enabled','decay_rate_pct','decay_interval_days','decay_floor_xp','decay_floor_mode',
   ];
   if (!allowed.includes(field)) throw new Error(`Unknown xp config field: ${field}`);
   stmts.ensureConfig.run(guildId);
@@ -744,6 +749,76 @@ export function removeRoleReward(guildId, level, roleId) {
 
 export function getRoleRewards(guildId) {
   return stmts.getRoleRewards.all(guildId);
+}
+
+// ─── Multipliers, boosts and level names ─────────────────────────────────────
+// The same settings the dashboard's XP page edits (dashboard/routes/xp.js),
+// with the same limits, for b!xp multiplier / boost / level. Throws
+// XpSettingError with a message meant for the person running the command.
+export class XpSettingError extends Error {}
+const intIn = (n, lo, hi) => Number.isInteger(n) && n >= lo && n <= hi;
+
+export function setMultiplier(guildId, kind, targetId, multiplier) {
+  const table = kind === 'channel' ? 'xp_channel_rules' : kind === 'role' ? 'xp_role_rules' : null;
+  if (!table) throw new XpSettingError('Choose channel or role.');
+  const col = kind === 'channel' ? 'channel_id' : 'role_id';
+  if (multiplier == null) {
+    return db.prepare(`DELETE FROM ${table} WHERE guild_id = ? AND ${col} = ?`).run(guildId, targetId).changes > 0;
+  }
+  if (!Number.isFinite(multiplier) || multiplier < 0 || multiplier > 10) throw new XpSettingError('The multiplier must be from 0 (no XP) to 10.');
+  db.prepare(`INSERT INTO ${table} (guild_id, ${col}, multiplier) VALUES (?, ?, ?)
+              ON CONFLICT(guild_id, ${col}) DO UPDATE SET multiplier = excluded.multiplier`).run(guildId, targetId, multiplier);
+  return true;
+}
+
+export function listMultipliers(guildId) {
+  return {
+    channels: db.prepare('SELECT channel_id, multiplier FROM xp_channel_rules WHERE guild_id = ? ORDER BY multiplier DESC').all(guildId),
+    roles:    db.prepare('SELECT role_id, multiplier FROM xp_role_rules WHERE guild_id = ? ORDER BY multiplier DESC').all(guildId),
+  };
+}
+
+export function startBoost(guildId, multiplier, hours, label, by) {
+  if (!Number.isFinite(multiplier) || multiplier <= 0 || multiplier > 10) throw new XpSettingError('The multiplier must be above 0 and at most 10.');
+  if (!Number.isFinite(hours) || hours <= 0 || hours > 720) throw new XpSettingError('The length must be more than 0 and at most 720 hours (30 days).');
+  const now = Date.now();
+  return db.prepare(`INSERT INTO xp_boost_events (guild_id, multiplier, label, started_by, started_at, expires_at) VALUES (?, ?, ?, ?, ?, ?)`)
+    .run(guildId, multiplier, label ? String(label).slice(0, 80) : null, by ?? null, now, now + hours * 3_600_000).lastInsertRowid;
+}
+
+export function endBoost(guildId, boostId) {
+  return db.prepare('DELETE FROM xp_boost_events WHERE guild_id = ? AND id = ?').run(guildId, Number(boostId)).changes > 0;
+}
+
+export function listBoosts(guildId) {
+  db.prepare('DELETE FROM xp_boost_events WHERE guild_id = ? AND expires_at <= ?').run(guildId, Date.now());
+  return db.prepare('SELECT * FROM xp_boost_events WHERE guild_id = ? ORDER BY expires_at ASC').all(guildId);
+}
+
+export function listLevelDefs(guildId) {
+  return db.prepare('SELECT level, name, xp_required FROM xp_levels WHERE guild_id = ? ORDER BY level ASC').all(guildId);
+}
+
+export function setLevelDef(guildId, level, xpRequired, name) {
+  name = String(name ?? '').trim();
+  if (!intIn(level, 1, 1000)) throw new XpSettingError('The level must be a whole number from 1 to 1000.');
+  if (!intIn(xpRequired, 1, 1e9)) throw new XpSettingError('The XP needed must be a whole number above 0.');
+  if (!name || name.length > 50) throw new XpSettingError('Give the level a name, up to 50 characters.');
+  // Levels are reached in order, so a threshold has to sit between its
+  // neighbours or every level above it becomes unreachable.
+  const below = db.prepare('SELECT level, xp_required FROM xp_levels WHERE guild_id = ? AND level < ? ORDER BY level DESC LIMIT 1').get(guildId, level);
+  const above = db.prepare('SELECT level, xp_required FROM xp_levels WHERE guild_id = ? AND level > ? ORDER BY level ASC LIMIT 1').get(guildId, level);
+  if (below && xpRequired <= below.xp_required) throw new XpSettingError(`Level ${level} needs more XP than level ${below.level} (${below.xp_required.toLocaleString()} XP).`);
+  if (above && xpRequired >= above.xp_required) throw new XpSettingError(`Level ${level} needs less XP than level ${above.level} (${above.xp_required.toLocaleString()} XP).`);
+  db.prepare(`INSERT INTO xp_levels (guild_id, level, name, xp_required) VALUES (?, ?, ?, ?)
+              ON CONFLICT(guild_id, level) DO UPDATE SET name = excluded.name, xp_required = excluded.xp_required`).run(guildId, level, name, xpRequired);
+}
+
+export function removeLevelDef(guildId, level) {
+  const removed = db.prepare('DELETE FROM xp_levels WHERE guild_id = ? AND level = ?').run(guildId, level).changes > 0;
+  // Same as the dashboard: its reward roles go with it.
+  if (removed) db.prepare('DELETE FROM xp_level_roles WHERE guild_id = ? AND level = ?').run(guildId, level);
+  return removed;
 }
 
 // ─── Prune ───────────────────────────────────────────────────────────────────
