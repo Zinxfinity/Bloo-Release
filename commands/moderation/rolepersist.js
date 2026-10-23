@@ -28,6 +28,7 @@ import {
 } from '../../handlers/rolePersist.js';
 import { sendModLog } from '../../handlers/modLog.js';
 import { Permissions } from '../../config/guildPermissions.js';
+import { unixSeconds } from '../../utils/format.js';
 
 function parseUserId(arg) {
   if (!arg) return null;
@@ -139,17 +140,16 @@ export default {
           const embed = new EmbedBuilder()
             .setTitle('🔒  Role Persist Rules')
             .setColor(COLORS.SUCCESS)
-            .setDescription('Anyone who leaves with these roles will get them back when they rejoin.')
+            // Listed in the description, not as field names: a field name
+            // shows <@&id> as raw text instead of the role.
+            // set_by/set_at, not added_by/added_at; older rows hold milliseconds.
+            .setDescription([
+              'Anyone who leaves with these roles will get them back when they rejoin.',
+              '',
+              ...rules.map(rule =>
+                `<@&${rule.role_id}>\n-# Added by ${rule.set_by ? `<@${rule.set_by}>` : 'unknown'} <t:${unixSeconds(rule.set_at)}:R>${rule.reason ? `, ${rule.reason}` : ''}`),
+            ].join('\n').slice(0, 4000))
             .setFooter({ text: `${rules.length} rule${rules.length === 1 ? '' : 's'}` });
-
-          for (const rule of rules) {
-            embed.addFields({
-              name:  `<@&${rule.role_id}>`,
-              // role_persist_rules columns are set_by/set_at (unix seconds), not added_by/added_at
-              value: `-# Added by <@${rule.set_by}> <t:${rule.set_at}:R>, ${rule.reason}`,
-              inline: false,
-            });
-          }
 
           await message.reply({ embeds: [embed.toJSON()] }).catch(() => {});
           break;

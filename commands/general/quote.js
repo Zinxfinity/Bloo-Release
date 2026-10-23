@@ -95,8 +95,10 @@ export default {
       .setFooter({ text: `Quoted by ${message.author.username}` })
       .setTimestamp();
 
-    // Include first image attachment if present
-    const image = quoted.attachments?.find?.(a => a.contentType?.startsWith('image/'));
+    // Include first image attachment if present. Not a spoilered or
+    // explicit-flagged one (flags 8 and 16): an embed image can't be blurred.
+    const image = quoted.attachments?.find?.(a =>
+      a.contentType?.startsWith('image/') && !((a.flags ?? 0) & 24) && !/^SPOILER_/i.test(a.filename ?? ''));
     if (image) embed.setImage(image.url);
 
     await message.send({ embeds: [embed.toJSON()] }).catch(() => {});

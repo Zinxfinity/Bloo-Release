@@ -145,10 +145,13 @@ async function handleView(client, message, targetArg, guildId) {
     return `${label}**#${w.id}** <t:${w.created_at}:d> by <@${w.executor_id}>: ${w.reason?.slice(0, 80) ?? 'No reason'}${label}`;
   });
 
+  // Embed titles show <@id> as raw text, so the title gets the name and the
+  // mention goes in the description.
+  const target = await client.rest.get(`/users/${targetId}`).catch(() => null);
   const embed = new EmbedBuilder()
     .setColor(active.length > 0 ? COLORS.WARNING : COLORS.SUCCESS)
-    .setTitle(`Warnings, <@${targetId}>`)
-    .setDescription(lines.join('\n'))
+    .setTitle(`Warnings for ${target?.global_name || target?.username || targetId}`)
+    .setDescription(`<@${targetId}>\n\n${lines.join('\n')}`)
     .addFields(
       { name: 'Active', value: String(active.length), inline: true },
       { name: 'Total',  value: String(warns.length),  inline: true },

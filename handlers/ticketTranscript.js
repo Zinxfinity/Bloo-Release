@@ -119,8 +119,14 @@ export function captureMessage(message) {
   const embeds      = message.embeds?.length
     ? JSON.stringify(message.embeds)
     : null;
-  const attachments = message.attachments?.length
-    ? JSON.stringify(message.attachments.map?.(a => ({ url: a.url ?? a, name: a.filename ?? null })) ?? message.attachments)
+  // A gateway message keeps attachments in a Collection (.size, no .length),
+  // a REST one in an array. Checking .length alone saved no attachments at
+  // all from gateway messages, so transcripts lost every image and file.
+  const attList = Array.isArray(message.attachments)
+    ? message.attachments
+    : [...(message.attachments?.values?.() ?? [])];
+  const attachments = attList.length
+    ? JSON.stringify(attList.map(a => ({ url: a.url ?? a, name: a.filename ?? null, size: a.size ?? null })))
     : null;
 
   try {

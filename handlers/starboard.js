@@ -239,13 +239,47 @@ function hasExtension(value, extRe) {
 // auto-unfurl that into a real inline player.
 const VIDEO_EXT_RE = /\.(mp4|mov|webm|mkv|avi|m4v)$/i;
 const IMAGE_EXT_RE = /\.(png|jpe?g|gif|webp|heic|heif|bmp)$/i;
+// Raw REST messages say content_type, hydrated gateway ones contentType.
+const typeOf = a => a.contentType ?? a.content_type ?? '';
+const isVideo = a => typeOf(a).startsWith('video/') || hasExtension(a.filename, VIDEO_EXT_RE) || hasExtension(a.url, VIDEO_EXT_RE);
+const isImage = a => typeOf(a).startsWith('image/') || hasExtension(a.filename, IMAGE_EXT_RE) || hasExtension(a.url, IMAGE_EXT_RE);
+
+// Spoilered (and explicit-flagged) media must stay hidden on the starboard
+// too. An embed image or an unfurled link can't be blurred, so these never
+// go in either; the post re-uploads them with the same flags instead.
+const IS_SPOILER = 8, CONTAINS_EXPLICIT_MEDIA = 16;
+const HIDDEN_FLAGS = IS_SPOILER | CONTAINS_EXPLICIT_MEDIA;
+const isHidden = a => ((a.flags ?? 0) & HIDDEN_FLAGS) !== 0 || /^SPOILER_/i.test(a.filename ?? '') || a.nsfw === true;
+const shown = attachments => attachments.filter(a => !isHidden(a));
+
 function findVideoUrl(attachments) {
-  const vid = attachments.find(a =>
-    a.contentType?.startsWith('video/') ||
-    hasExtension(a.filename, VIDEO_EXT_RE) ||
-    hasExtension(a.url, VIDEO_EXT_RE)
-  );
-  return vid?.url ?? null;
+  return shown(attachments).find(isVideo)?.url ?? null;
+}
+
+// The first spoilered image or video, if any.
+function findHiddenMedia(attachments) {
+  return attachments.find(a => isHidden(a) && a.url && (isImage(a) || isVideo(a))) ?? null;
+}
+
+// Downloads a spoilered attachment so it can go back up as a spoiler.
+// Returns null when it's too big or can't be fetched; the post then just
+// says the message has a spoiler.
+const SPOILER_REUPLOAD_MAX = 8 * 1024 * 1024;
+async function spoilerUpload(att) {
+  try {
+    if ((att.size ?? 0) > SPOILER_REUPLOAD_MAX) return null;
+    const res = await fetch(att.url, { signal: AbortSignal.timeout(10_000) });
+    if (!res.ok) return null;
+    const data = Buffer.from(await res.arrayBuffer());
+    if (data.length > SPOILER_REUPLOAD_MAX) return null;
+    const name = /^SPOILER_/i.test(att.filename ?? '') ? att.filename : `SPOILER_${att.filename || 'image.png'}`;
+    return {
+      files: [{ name, data }],
+      attachments: [{ id: 0, filename: name, flags: ((att.flags ?? 0) & HIDDEN_FLAGS) || IS_SPOILER }],
+    };
+  } catch {
+    return null;
+  }
 }
 
 function buildStarboardEmbed(guildId, channelId, messageId, originalMsg) {
@@ -272,11 +306,7 @@ function buildStarboardEmbed(guildId, channelId, messageId, originalMsg) {
   // through as .heic/.heif, or with no extension at all), silently leaving
   // the starboard repost with no image. Check the real content type first,
   // same dual-check already used in commands/general/bugreport.js.
-  const img = attachments.find(a =>
-    a.contentType?.startsWith('image/') ||
-    hasExtension(a.filename, IMAGE_EXT_RE) ||
-    hasExtension(a.url, IMAGE_EXT_RE)
-  );
+  const img = shown(attachments).find(isImage);
   if (img?.url) embed.setImage(img.url);
 
   return embed;
@@ -399,7 +429,8 @@ export async function handleStarReaction(client, reaction, userId) {
 
   const embed     = buildStarboardEmbed(guildId, channelId, messageId, originalMsg);
   const videoUrl  = findVideoUrl(getAttachments(originalMsg));
-  const content   = `${displayEmoji(config.emoji)} **${starCount}** | <#${channelId}>${videoUrl ? `\n${videoUrl}` : ''}`;
+  const hidden    = findHiddenMedia(getAttachments(originalMsg));
+  const content   = `${displayEmoji(config.emoji)} **${starCount}** | <#${channelId}>${hidden ? ' · 🙈 has a spoiler' : ''}${videoUrl ? `\n${videoUrl}` : ''}`;
 
   try {
     if (entry?.starboard_message_id) {
@@ -409,9 +440,13 @@ export async function handleStarReaction(client, reaction, userId) {
       );
       stmts.upsertEntry.run(guildId, messageId, entry.starboard_message_id, starCount);
     } else {
+      // A spoilered image or video goes up again as a spoiler attachment.
+      const upload = hidden ? await spoilerUpload(hidden) : null;
       const posted = await client.rest.post(
         `/channels/${targetChannelId}/messages`,
-        { body: { content, embeds: [embed.toJSON()] } }
+        upload
+          ? { body: { content, embeds: [embed.toJSON()], attachments: upload.attachments }, files: upload.files }
+          : { body: { content, embeds: [embed.toJSON()] } }
       );
       stmts.upsertEntry.run(guildId, messageId, posted?.id ?? null, starCount);
     }
@@ -451,10 +486,14 @@ export async function handleStarRemove(client, reaction) {
     // Preserve the video link line (if any) when refreshing the count,
     // otherwise a count update would silently strip it back out.
     const videoUrl = originalMsg ? findVideoUrl(getAttachments(originalMsg)) : null;
+    const hidden   = originalMsg ? findHiddenMedia(getAttachments(originalMsg)) : null;
+    // The embed is rebuilt too, same as on a new star, so a post made before
+    // spoilers were kept hidden loses its uncovered picture either way.
+    const embeds   = originalMsg ? { embeds: [buildStarboardEmbed(guildId, channelId, messageId, originalMsg).toJSON()] } : {};
     try {
       await client.rest.patch(
         `/channels/${targetChannelId}/messages/${entry.starboard_message_id}`,
-        { body: { content: `${displayEmoji(config.emoji)} **${starCount}** | <#${channelId}>${videoUrl ? `\n${videoUrl}` : ''}` } }
+        { body: { content: `${displayEmoji(config.emoji)} **${starCount}** | <#${channelId}>${hidden ? ' · 🙈 has a spoiler' : ''}${videoUrl ? `\n${videoUrl}` : ''}`, ...embeds } }
       );
     } catch { /* best effort */ }
     return;

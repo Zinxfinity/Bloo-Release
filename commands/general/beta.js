@@ -9,6 +9,7 @@
 import { EmbedBuilder } from '@fluxerjs/core';
 import { COLORS } from '../../config/embeds.js';
 import { isBetaTester, betaConfigured, betaCommands } from '../../handlers/betaTesters.js';
+import { isBotOwner } from '../../config/dashAccess.js';
 
 export default {
   name: 'beta',
@@ -31,22 +32,24 @@ export default {
         ...(ecoOpen ? ['- **The economy game**: open to testers in the support server\'s economy channel. Check the latest round post there for what to test.'] : []),
         ...cmds.map(c => `- \`${P}${c.name}\`: ${c.description ?? ''}`),
       ];
-      embed.setTitle('🧪 Beta testing')
+      embed.setTitle('🧪 You\'re a beta tester')
         .setDescription([
-          'Thanks for testing! These are in beta right now, for testers only:',
+          lines.length
+            ? `Thanks for helping! You can try these before everyone else:\n\n${lines.join('\n')}`
+            : 'There\'s nothing to test right now. When something new is ready, it\'ll be listed here and announced in the support server\'s beta channel.',
           '',
-          lines.length ? lines.join('\n') : '- Nothing at the moment. New things show up here first.',
-          '',
-          `Spotted something off? \`${P}feedback\` goes straight to the team, or post in the support server's beta channel.`,
+          `Found a bug, or something confusing? Tell us with \`${P}feedback\`, or post in the beta channel.`,
+          // Bot owners count as testers without the role.
+          ...(isBotOwner(message.author.id) ? ['', '-# You see this because you\'re a bot owner.'] : []),
         ].join('\n'));
     } else {
       embed.setTitle('🧪 The Bloo beta')
         .setDescription([
-          'Beta testers try new features about a week before everyone else, and help shape them before release.',
+          'Beta testers get to try new features before everyone else, and help us fix them before release.',
           '',
           betaConfigured() && support
-            ? `To join, ask for the beta tester role in the [Bloo support server](${support}).`
-            : 'There\'s no open beta right now.',
+            ? `**How to join:** join the [Bloo support server](${support}) and ask the team for the Beta Tester role. Once you have it, run \`${P}beta\` again to see what's being tested.`
+            : 'The beta isn\'t open to new testers right now.',
         ].join('\n'));
     }
     return message.reply({ embeds: [embed.toJSON()] });

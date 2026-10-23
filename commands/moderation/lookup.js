@@ -13,6 +13,7 @@ import { normalizeAction, getCasesForUser }                   from '../../handle
 import { getActiveWarnings, getAllWarnings }  from '../../handlers/warnSystem.js';
 import { getOpenTicketByUser, getTicketsByUser } from '../../handlers/ticketSystem/index.js';
 import { Permissions } from '../../config/guildPermissions.js';
+import { unixSeconds } from '../../utils/format.js';
 
 function parseUserId(arg) {
   if (!arg) return null;
@@ -88,9 +89,8 @@ export default {
     const ageDays   = accountAgeDays(targetId);
 
     const cases     = getCasesForUser(guildId, targetId, 10);
-    // created_at is unix seconds (SQLite unixepoch()), not milliseconds
     const caseLines = cases.slice(0, 5).map(c =>
-      `${caseIcon(c.action)} \`#${c.case_number}\` ${c.action}, <t:${c.created_at}:d>`
+      `${caseIcon(c.action)} \`#${c.case_number}\` ${c.action}, <t:${unixSeconds(c.created_at)}:d>`
     );
 
     const activeWarns = getActiveWarnings(guildId, targetId);

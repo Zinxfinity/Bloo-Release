@@ -354,6 +354,8 @@ function hasUsableContent(item) {
 // Exported so the dashboard's feed preview (dashboard/routes/webhooks.js)
 // runs the exact same fetch/detect/parse pipeline the live poller uses,
 // instead of a reimplementation that could silently drift from it.
+const hostOf = url => { try { return new URL(url).hostname; } catch { return ''; } };
+
 export async function fetchFeed(url) {
   const twitterMatch = url.match(TWITTER_BRIDGE_RE);
   if (twitterMatch) {
@@ -361,7 +363,15 @@ export async function fetchFeed(url) {
     return items.filter(hasUsableContent);
   }
 
-  const res  = await fetch(url, { headers: { 'User-Agent': 'Bloo-Bot/2.0 RSS Reader' }, signal: AbortSignal.timeout(10_000) });
+  // YouTube's feeds answer 404 or 500 on and off (mostly overnight) for
+  // channels that are fine a moment later, so those get two quick retries.
+  const retries = /(^|\.)youtube\.com$/i.test(hostOf(url)) ? 2 : 0;
+  let res;
+  for (let attempt = 0; ; attempt++) {
+    res = await fetch(url, { headers: { 'User-Agent': 'Bloo-Bot/2.0 RSS Reader' }, signal: AbortSignal.timeout(10_000) });
+    if (res.ok || attempt >= retries || !(res.status === 404 || res.status >= 500)) break;
+    await new Promise(r => setTimeout(r, 3000));
+  }
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   const text = await res.text();
 
@@ -506,6 +516,32 @@ export function pruneGuildFeeds(guildId) {
   stmts.deleteByGuild.run(guildId);
 }
 
+// ─── Fetch error logging ─────────────────────────────────────────────────────
+// A feed that fails every check for hours used to log a warning each time.
+// Now: the first error, then one summary an hour while it keeps failing,
+// and a line when it works again.
+const fetchErrorRuns = new Map(); // feedId -> { since, count, lastLogged, last }
+const ERROR_LOG_EVERY_MS = 60 * 60 * 1000;
+function logFetchError(feed, message) {
+  const now = Date.now();
+  const run = fetchErrorRuns.get(feed.id);
+  if (!run) {
+    fetchErrorRuns.set(feed.id, { since: now, count: 1, lastLogged: now, last: message });
+    logger.warn(`[WEBHOOK] Feed #${feed.id} (${feed.name}) fetch error: ${message}`);
+    return;
+  }
+  run.count++; run.last = message;
+  if (now - run.lastLogged < ERROR_LOG_EVERY_MS) return;
+  run.lastLogged = now;
+  logger.warn(`[WEBHOOK] Feed #${feed.id} (${feed.name}) still failing: ${run.count} errors since ${new Date(run.since).toISOString()}, latest ${message}`);
+}
+function logFetchRecovered(feed) {
+  const run = fetchErrorRuns.get(feed.id);
+  if (!run) return;
+  fetchErrorRuns.delete(feed.id);
+  if (run.count > 1) logger.info(`[WEBHOOK] Feed #${feed.id} (${feed.name}) working again after ${run.count} errors.`);
+}
+
 // ─── Tick, check one feed ────────────────────────────────────────────────────
 // force=true skips the "not due yet" gate, used by the dashboard's manual
 // "Refresh Now" button (refreshFeedNow below) to check regardless of
@@ -533,10 +569,11 @@ async function checkFeed(client, feed, force = false) {
   } catch (err) {
     // A single blip is forgiven, only a sustained run of failures (see
     // FAIL_DURATION_S above) counts toward auto-disabling the feed.
-    logger.warn(`[WEBHOOK] Feed #${feed.id} (${feed.name}) fetch error: ${err.message}`);
+    logFetchError(feed, err.message);
     await trackFailure(client, feed);
     return { ok: false, reason: err.message, posted: 0 };
   }
+  logFetchRecovered(feed);
 
   if (!items.length) {
     // Fetched fine but came back blank, or every item was empty of usable

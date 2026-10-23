@@ -6,6 +6,7 @@ import {
 } from '../../handlers/watchlist.js';
 import { parseUserMention } from '@fluxerjs/core';
 import { Permissions } from '../../config/guildPermissions.js';
+import { unixSeconds } from '../../utils/format.js';
 
 function parseUserId(arg) {
   if (!arg) return null;
@@ -39,7 +40,7 @@ export default {
         return message.reply({ embeds: [Embed.info('Watchlist is empty.').toJSON()] });
       }
       const lines = list.slice(0, 25).map(e =>
-        `<@${e.user_id}>: ${e.reason ?? 'No reason'} (added by <@${e.added_by}> <t:${e.added_at}:R>)`
+        `<@${e.user_id}>: ${e.reason ?? 'No reason'} (added by <@${e.added_by}> <t:${unixSeconds(e.added_at)}:R>)`
       );
       return message.reply({ embeds: [Embed.warning(lines.join('\n'), 'Watchlist').toJSON()] });
     }
@@ -78,7 +79,7 @@ export default {
         .addFields(
           { name: 'User',     value: `<@${entry.user_id}>`,     inline: true },
           { name: 'Added By', value: `<@${entry.added_by}>`,    inline: true },
-          { name: 'Added',    value: `<t:${entry.added_at}:F>`, inline: true },
+          { name: 'Added',    value: `<t:${unixSeconds(entry.added_at)}:F>`, inline: true },
           { name: 'Reason',   value: entry.reason ?? 'No reason', inline: false },
         );
       return message.reply({ embeds: [embed.toJSON()] });

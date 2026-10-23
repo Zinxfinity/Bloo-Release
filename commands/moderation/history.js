@@ -8,6 +8,7 @@ import { getAllWarnings } from '../../handlers/warnSystem.js';
 import { parseUserMention } from '@fluxerjs/core';
 import db from '../../db.js';
 import { Permissions } from '../../config/guildPermissions.js';
+import { unixSeconds } from '../../utils/format.js';
 
 function parseUserId(arg) {
   if (!arg) return null;
@@ -39,8 +40,7 @@ function styleFor(action) {
 }
 
 function buildCaseEmbed(c) {
-  // created_at is unix seconds (SQLite unixepoch()), not milliseconds
-  const ts    = c.created_at;
+  const ts    = unixSeconds(c.created_at);
   const style = styleFor(c.action);
   const embed = new EmbedBuilder()
     .setTitle(`${style.emoji} Case #${c.case_number ?? c.id}, ${c.action}`)
@@ -54,7 +54,7 @@ function buildCaseEmbed(c) {
 
 function buildCaseListEmbed(cases, title) {
   const lines = cases.map(c => {
-    const ts    = c.created_at;
+    const ts    = unixSeconds(c.created_at);
     const style = styleFor(c.action);
     const brief = c.reason ? `${c.reason.slice(0, 60)}${c.reason.length > 60 ? '…' : ''}` : 'No reason';
     return `${style.emoji} \`#${c.case_number ?? c.id}\` **${c.action}**, <t:${ts}:d>\n> ${brief}`;
@@ -130,7 +130,7 @@ export default {
     }));
 
     const cases = [...modCases, ...warnCases]
-      .sort((a, b) => b.created_at - a.created_at)
+      .sort((a, b) => unixSeconds(b.created_at) - unixSeconds(a.created_at))
       .slice(0, 25);
 
     if (!cases.length) {
@@ -143,7 +143,7 @@ export default {
 
     const caseLines = cases.map(c => {
       const style   = styleFor(c.action);
-      const ts      = c.created_at;
+      const ts      = unixSeconds(c.created_at);
       const exec    = c.executor_id ? `<@${c.executor_id}>` : 'Unknown';
       const brief   = c.reason ? `\n> ${c.reason.slice(0, 80)}${c.reason.length > 80 ? '…' : ''}` : '';
       const retired = c.retired ? ' *(retired)*' : '';

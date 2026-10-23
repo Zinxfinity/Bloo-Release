@@ -10,6 +10,16 @@ export function fullTimestamp(ms) {
   }) + ' UTC';
 }
 
+// Unix seconds for a <t:...> tag. Some older rows (mod cases, watchlist,
+// role persist rules) were saved in milliseconds while today's code saves
+// seconds; a millisecond value in a <t:> tag shows a date thousands of years
+// away, so anything past year 5000 in seconds is taken as milliseconds.
+export function unixSeconds(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return 0;
+  return Math.floor(n > 1e11 ? n / 1000 : n);
+}
+
 export function humanizeGap(seconds) {
   if (seconds < 60) return `${seconds}s`;
   const mins = Math.floor(seconds / 60);

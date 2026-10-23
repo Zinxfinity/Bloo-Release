@@ -65,8 +65,10 @@ export function updateAutomodConfig(guildId, fields) {
 /**
  * Run all automod checks on a message.
  * Returns true if the message was blocked (deleted).
+ * edited: the message was edited, not sent. Only the content checks run;
+ * an edit isn't a new message, so it doesn't count toward message spam.
  */
-export async function runAutomod(client, message) {
+export async function runAutomod(client, message, { edited = false } = {}) {
   const guildId = message.guildId;
   const userId  = message.author?.id;
   if (!guildId || !userId) return false;
@@ -87,6 +89,7 @@ export async function runAutomod(client, message) {
   }
 
   // ── Message spam ──────────────────────────────────────────────────────────
+  if (!edited) {
   const now = Date.now();
   const timestamps = getSpamTimestamps(guildId, userId);
   timestamps.push(now);
@@ -98,6 +101,7 @@ export async function runAutomod(client, message) {
     spamTracker.get(guildId).set(userId, []); // reset after trigger
     await applyAction(client, message, config.spam_action, 'Message spam');
     return true;
+  }
   }
 
   // ── Emoji spam ────────────────────────────────────────────────────────────

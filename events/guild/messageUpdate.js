@@ -4,6 +4,8 @@ import * as resilience from '../../handlers/resilience.js';
 let _logMessageEdit    = null;
 let _runWordFilter     = null;
 let _handleStarredEdit = null;
+let _runAutomod        = null;
+let _enforceLink       = null;
 
 export default {
   name: Events.MessageUpdate,
@@ -41,7 +43,24 @@ export default {
       const mod = await import('../../handlers/wordFilter.js').catch(() => null);
       _runWordFilter = mod?.runWordFilter ?? (() => false);
     }
-    await resilience.runCritical('wordFilter.run', () => _runWordFilter(client, newMessage, guildId, { edited: true }));
+    const wordFilterBlocked = await resilience.runCritical('wordFilter.run', () => _runWordFilter(client, newMessage, guildId, { edited: true }), { fallback: false });
+    if (wordFilterBlocked) return;
+
+    // Automod's content checks and link enforcement used to run on new
+    // messages only, so posting "hi" and editing a blocked link or invite
+    // into it got straight past both. They take guildId from the message,
+    // which an uncached edit may not carry, so it's filled in here.
+    const msg = newMessage.guildId ? newMessage : Object.assign(Object.create(newMessage), { guildId });
+    if (!_runAutomod) {
+      const mod = await import('../../handlers/automod.js').catch(() => null);
+      _runAutomod = mod?.runAutomod ?? (() => false);
+    }
+    if (await resilience.runCritical('automod.run', () => _runAutomod(client, msg, { edited: true }), { fallback: false })) return;
+    if (!_enforceLink) {
+      const mod = await import('../../handlers/linkEnforcement.js').catch(() => null);
+      _enforceLink = mod?.enforceLink ?? (() => false);
+    }
+    if (await resilience.runCritical('linkEnforcement.enforceLink', () => _enforceLink(client, msg), { fallback: false })) return;
 
     if (!_handleStarredEdit) {
       const mod = await import('../../handlers/starboard.js').catch(() => null);
