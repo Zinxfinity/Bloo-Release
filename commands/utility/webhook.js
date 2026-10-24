@@ -1,6 +1,6 @@
 import { EmbedBuilder } from '@fluxerjs/core';
 import { Embed, COLORS } from '../../config/embeds.js';
-import { addFeed, removeFeed, listFeeds, setFeedEnabled, updateFeed, refreshFeedNow } from '../../handlers/webhookPoller.js';
+import { addFeed, removeFeed, listFeeds, setFeedEnabled, updateFeed, refreshFeedNow, getFeedAlert, setFeedAlert, clearFeedAlert } from '../../handlers/webhookPoller.js';
 import { Permissions } from '../../config/guildPermissions.js';
 import { isChannelInGuild } from '../../utils/channelGuard.js';
 import { missingPermissions } from '../../utils/channelPermissions.js';
@@ -29,7 +29,7 @@ export default {
   name: 'webhook',
   aliases: ['feed', 'rss'],
   description: 'Manage RSS/Atom/JSON feed subscriptions, including X/Twitter via twitter:<handle>.',
-  usage: '{prefix}webhook <add|edit|ping|check|remove|list|enable|disable> [args]',
+  usage: '{prefix}webhook <add|edit|ping|check|alert|remove|list|enable|disable> [args]',
   requiredPermission: Permissions.BAN_MEMBERS,
 
   cooldown: 5,
@@ -46,6 +46,30 @@ export default {
         `**#${f.id}** \`${f.name}\`: ${f.enabled ? '✅' : '❌'} | every ${f.interval_m}m | <#${f.channel_id}>`
       );
       return message.reply({ embeds: [Embed.info(lines.join('\n'), 'Feed Subscriptions').toJSON()] });
+    }
+
+    // b!webhook alert #channel [@role] | off: where Bloo says a feed paused
+    // itself, pinging that role, so staff can turn it back on.
+    if (sub === 'alert') {
+      const raw = args[1]?.toLowerCase();
+      if (raw === 'off') {
+        return message.reply({ embeds: [(clearFeedAlert(guildId)
+          ? Embed.success('Feed alerts are off. A paused feed is announced in its own channel again.')
+          : Embed.info('Feed alerts weren\'t set.')).toJSON()] });
+      }
+      if (!raw) {
+        const a = getFeedAlert(guildId);
+        return message.reply({ embeds: [Embed.info(
+          (a ? `When a feed pauses itself, Bloo posts in <#${a.channel_id}>${a.role_id ? ` and pings <@&${a.role_id}>` : ''}.` : 'No feed alert channel is set, so a paused feed is announced in its own channel.') +
+          `\n\n\`${prefix}webhook alert #channel [@role]\` · \`${prefix}webhook alert off\``, 'Feed alerts').toJSON()] });
+      }
+      const channelId = args[1].match(/^<#(\d+)>$/)?.[1] ?? (/^\d{15,25}$/.test(args[1]) ? args[1] : null);
+      const roleArg = args[2];
+      const roleId = roleArg ? (roleArg.match(/^<@&(\d+)>$/)?.[1] ?? (/^\d{15,25}$/.test(roleArg) ? roleArg : null)) : null;
+      if (!channelId || (roleArg && !roleId)) return message.reply({ embeds: [Embed.warning(`Usage: \`${prefix}webhook alert #channel [@role]\` or \`${prefix}webhook alert off\``).toJSON()] });
+      if (!await isChannelInGuild(client, guildId, channelId)) return message.reply({ embeds: [Embed.danger('That channel is not in this server.').toJSON()] });
+      setFeedAlert(guildId, channelId, roleId);
+      return message.reply({ embeds: [Embed.success(`When a feed pauses itself, Bloo will post in <#${channelId}>${roleId ? ` and ping <@&${roleId}>` : ''}, with the command to turn it back on.`).toJSON()] });
     }
 
     if (sub === 'add') {

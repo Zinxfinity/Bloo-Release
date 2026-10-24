@@ -256,39 +256,48 @@ function findVideoUrl(attachments) {
   return shown(attachments).find(isVideo)?.url ?? null;
 }
 
-// The first spoilered image or video, if any.
+// A starred message's images, up to this many, go on the starboard post.
+const MAX_IMAGES = 4;
+
+// Spoilered images and videos, up to MAX_IMAGES.
 function findHiddenMedia(attachments) {
-  return attachments.find(a => isHidden(a) && a.url && (isImage(a) || isVideo(a))) ?? null;
+  return attachments.filter(a => isHidden(a) && a.url && (isImage(a) || isVideo(a))).slice(0, MAX_IMAGES);
 }
 
-// Downloads a spoilered attachment so it can go back up as a spoiler.
-// Returns null when it's too big or can't be fetched; the post then just
-// says the message has a spoiler.
+// Downloads spoilered attachments so they can go back up as spoilers.
+// One that's too big or can't be fetched is left off; returns null when
+// none could be copied, and the post then just says it has a spoiler.
 const SPOILER_REUPLOAD_MAX = 8 * 1024 * 1024;
-async function spoilerUpload(att) {
-  try {
-    if ((att.size ?? 0) > SPOILER_REUPLOAD_MAX) return null;
-    const res = await fetch(att.url, { signal: AbortSignal.timeout(10_000) });
-    if (!res.ok) return null;
-    const data = Buffer.from(await res.arrayBuffer());
-    if (data.length > SPOILER_REUPLOAD_MAX) return null;
-    const name = /^SPOILER_/i.test(att.filename ?? '') ? att.filename : `SPOILER_${att.filename || 'image.png'}`;
-    return {
-      files: [{ name, data }],
-      attachments: [{ id: 0, filename: name, flags: ((att.flags ?? 0) & HIDDEN_FLAGS) || IS_SPOILER }],
-    };
-  } catch {
-    return null;
+async function spoilerUpload(atts) {
+  const files = [], attachments = [];
+  for (const att of atts) {
+    try {
+      if ((att.size ?? 0) > SPOILER_REUPLOAD_MAX) continue;
+      const res = await fetch(att.url, { signal: AbortSignal.timeout(10_000) });
+      if (!res.ok) continue;
+      const data = Buffer.from(await res.arrayBuffer());
+      if (data.length > SPOILER_REUPLOAD_MAX) continue;
+      const name = /^SPOILER_/i.test(att.filename ?? '') ? att.filename : `SPOILER_${att.filename || 'image.png'}`;
+      attachments.push({ id: files.length, filename: name, flags: ((att.flags ?? 0) & HIDDEN_FLAGS) || IS_SPOILER });
+      files.push({ name, data });
+    } catch { /* leave this one off */ }
   }
+  return files.length ? { files, attachments } : null;
 }
 
-function buildStarboardEmbed(guildId, channelId, messageId, originalMsg) {
+// The starboard post's embeds: the main card with the first image, then one
+// image-only card for each further image (up to MAX_IMAGES in all). They
+// share the jump link as their url, which clients that group images can use
+// to show them together.
+function buildStarboardEmbeds(guildId, channelId, messageId, originalMsg) {
+  const jumpUrl = `https://fluxer.app/channels/${guildId}/${channelId}/${messageId}`;
   const embed = new EmbedBuilder()
     .setColor(COLORS.WARNING)
+    .setURL(jumpUrl)
     .setDescription(originalMsg.content?.slice(0, 2000) || ZERO_WIDTH_SPACE)
     .addFields({
       name: 'Source',
-      value: `[Jump to message](https://fluxer.app/channels/${guildId}/${channelId}/${messageId})`,
+      value: `[Jump to message](${jumpUrl})`,
       inline: true,
     })
     .setTimestamp();
@@ -306,10 +315,17 @@ function buildStarboardEmbed(guildId, channelId, messageId, originalMsg) {
   // through as .heic/.heif, or with no extension at all), silently leaving
   // the starboard repost with no image. Check the real content type first,
   // same dual-check already used in commands/general/bugreport.js.
-  const img = shown(attachments).find(isImage);
-  if (img?.url) embed.setImage(img.url);
+  const images = shown(attachments).filter(a => isImage(a) && a.url);
+  if (images[0]) embed.setImage(images[0].url);
+  if (images.length > MAX_IMAGES) {
+    const more = images.length - MAX_IMAGES;
+    embed.addFields({ name: 'More images', value: `${more} more in the original message`, inline: true });
+  }
 
-  return embed;
+  return [
+    embed.toJSON(),
+    ...images.slice(1, MAX_IMAGES).map(a => ({ color: COLORS.WARNING, url: jumpUrl, image: { url: a.url } })),
+  ];
 }
 
 // Called from events/guild/messageUpdate.js when a message's content or
@@ -332,11 +348,11 @@ export async function handleStarredMessageEdit(client, newMessage, guildIdOverri
   const { excluded, channelId: targetChannelId } = await resolveStarboardChannel(client, guildId, channelId, config.channel_id);
   if (excluded) return;
 
-  const embed = buildStarboardEmbed(guildId, channelId, messageId, newMessage);
+  const embeds = buildStarboardEmbeds(guildId, channelId, messageId, newMessage);
   try {
     await client.rest.patch(
       `/channels/${targetChannelId}/messages/${entry.starboard_message_id}`,
-      { body: { embeds: [embed.toJSON()] } }
+      { body: { embeds } }
     );
   } catch (err) {
     logger.warn(`[STARBOARD] Failed to refresh edited message ${messageId} in ${guildId}:`, err.message);
@@ -427,26 +443,26 @@ export async function handleStarReaction(client, reaction, userId) {
   const starChannel = await client.rest.get(`/channels/${targetChannelId}`).catch((err) => { logger.debug(`[STARBOARD] starboard channel fetch failed: ${err.message}`); return null; });
   if (!starChannel) { logger.debug('[STARBOARD] exit: starboard channel not found'); return; }
 
-  const embed     = buildStarboardEmbed(guildId, channelId, messageId, originalMsg);
+  const embeds    = buildStarboardEmbeds(guildId, channelId, messageId, originalMsg);
   const videoUrl  = findVideoUrl(getAttachments(originalMsg));
   const hidden    = findHiddenMedia(getAttachments(originalMsg));
-  const content   = `${displayEmoji(config.emoji)} **${starCount}** | <#${channelId}>${hidden ? ' · 🙈 has a spoiler' : ''}${videoUrl ? `\n${videoUrl}` : ''}`;
+  const content   = `${displayEmoji(config.emoji)} **${starCount}** | <#${channelId}>${hidden.length ? ' · 🙈 has a spoiler' : ''}${videoUrl ? `\n${videoUrl}` : ''}`;
 
   try {
     if (entry?.starboard_message_id) {
       await client.rest.patch(
         `/channels/${targetChannelId}/messages/${entry.starboard_message_id}`,
-        { body: { content, embeds: [embed.toJSON()] } }
+        { body: { content, embeds } }
       );
       stmts.upsertEntry.run(guildId, messageId, entry.starboard_message_id, starCount);
     } else {
-      // A spoilered image or video goes up again as a spoiler attachment.
-      const upload = hidden ? await spoilerUpload(hidden) : null;
+      // Spoilered images and videos go up again as spoiler attachments.
+      const upload = hidden.length ? await spoilerUpload(hidden) : null;
       const posted = await client.rest.post(
         `/channels/${targetChannelId}/messages`,
         upload
-          ? { body: { content, embeds: [embed.toJSON()], attachments: upload.attachments }, files: upload.files }
-          : { body: { content, embeds: [embed.toJSON()] } }
+          ? { body: { content, embeds, attachments: upload.attachments }, files: upload.files }
+          : { body: { content, embeds } }
       );
       stmts.upsertEntry.run(guildId, messageId, posted?.id ?? null, starCount);
     }
@@ -486,14 +502,14 @@ export async function handleStarRemove(client, reaction) {
     // Preserve the video link line (if any) when refreshing the count,
     // otherwise a count update would silently strip it back out.
     const videoUrl = originalMsg ? findVideoUrl(getAttachments(originalMsg)) : null;
-    const hidden   = originalMsg ? findHiddenMedia(getAttachments(originalMsg)) : null;
+    const hidden   = originalMsg ? findHiddenMedia(getAttachments(originalMsg)) : [];
     // The embed is rebuilt too, same as on a new star, so a post made before
     // spoilers were kept hidden loses its uncovered picture either way.
-    const embeds   = originalMsg ? { embeds: [buildStarboardEmbed(guildId, channelId, messageId, originalMsg).toJSON()] } : {};
+    const embeds   = originalMsg ? { embeds: buildStarboardEmbeds(guildId, channelId, messageId, originalMsg) } : {};
     try {
       await client.rest.patch(
         `/channels/${targetChannelId}/messages/${entry.starboard_message_id}`,
-        { body: { content: `${displayEmoji(config.emoji)} **${starCount}** | <#${channelId}>${hidden ? ' · 🙈 has a spoiler' : ''}${videoUrl ? `\n${videoUrl}` : ''}`, ...embeds } }
+        { body: { content: `${displayEmoji(config.emoji)} **${starCount}** | <#${channelId}>${hidden.length ? ' · 🙈 has a spoiler' : ''}${videoUrl ? `\n${videoUrl}` : ''}`, ...embeds } }
       );
     } catch { /* best effort */ }
     return;

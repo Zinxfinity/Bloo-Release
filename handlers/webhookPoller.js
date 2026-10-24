@@ -462,6 +462,27 @@ const isPermissionError = err => err?.status === 403 || err?.statusCode === 403
 // Tells the person who added a feed that it was paused, by DM. The usual
 // notice goes in the feed's own channel, which is exactly where Bloo can't
 // post when the cause is missing permissions.
+// ─── Feed alerts ─────────────────────────────────────────────────────────────
+// Where a server wants to hear about a paused feed, and which role to ping,
+// so staff can turn it back on (b!webhook alert, or the dashboard's RSS
+// Feeds page). Unset, the notice goes to the feed's own channel as before.
+db.exec(`CREATE TABLE IF NOT EXISTS webhook_alert_config (
+  guild_id   TEXT PRIMARY KEY,
+  channel_id TEXT NOT NULL,
+  role_id    TEXT
+)`);
+export function getFeedAlert(guildId) {
+  return db.prepare('SELECT channel_id, role_id FROM webhook_alert_config WHERE guild_id = ?').get(guildId) ?? null;
+}
+export function setFeedAlert(guildId, channelId, roleId = null) {
+  db.prepare(`INSERT INTO webhook_alert_config (guild_id, channel_id, role_id) VALUES (?, ?, ?)
+              ON CONFLICT(guild_id) DO UPDATE SET channel_id = excluded.channel_id, role_id = excluded.role_id`)
+    .run(guildId, channelId, roleId);
+}
+export function clearFeedAlert(guildId) {
+  return db.prepare('DELETE FROM webhook_alert_config WHERE guild_id = ?').run(guildId).changes > 0;
+}
+
 async function dmFeedOwner(client, feed, text) {
   if (!/^\d{15,25}$/.test(String(feed.added_by ?? ''))) return false;
   try {
@@ -490,7 +511,20 @@ async function trackFailure(client, feed, reason = null) {
     : `This usually means the source was temporarily down, not necessarily gone for good. Check the feed URL still works, then run \`${P}webhook enable ${feed.id}\` to resume it.`;
   const text = `The feed subscription **${feed.name}** (ID: #${feed.id}) has been automatically paused after failing continuously for over ${FAIL_DURATION_S / 3600} hours.\n\n${cause}`;
   let told = false;
-  if (reason !== 'permissions') {
+  // The server's feed alert channel first, pinging its role if it set one.
+  const alert = getFeedAlert(feed.guild_id);
+  if (alert?.channel_id) {
+    try {
+      await client.rest.post(`/channels/${alert.channel_id}/messages`, {
+        body: {
+          ...(alert.role_id ? { content: `<@&${alert.role_id}>`, allowed_mentions: { roles: [alert.role_id] } } : {}),
+          embeds: [danger(text, 'Feed Subscription Paused').setTimestamp().toJSON()],
+        },
+      });
+      told = true;
+    } catch { /* fall back to the feed's channel or the owner's DMs */ }
+  }
+  if (!told && reason !== 'permissions') {
     try {
       await client.rest.post(`/channels/${feed.channel_id}/messages`, {
         body: { embeds: [danger(text, 'Feed Subscription Paused').setTimestamp().toJSON()] },
