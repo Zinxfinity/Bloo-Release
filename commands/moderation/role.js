@@ -261,7 +261,7 @@ async function massRoleChangeAll({ client, message, guildId, executorId, action,
 export default {
   name: 'role',
   aliases: ['giverole', 'takerole', 'addrole', 'removerole'],
-  description: 'Add or remove a role from a member, or mass-assign one across many members at once.',
+  description: 'Give or take a role from a member, or from many members at once.',
   usage: '{prefix}role <add|remove> @user @role [reason]\n{prefix}role info @role\n{prefix}role mass <add|remove> @role <user ids…> [reason]\n{prefix}role mass <add|remove> @role all [reason]\n{prefix}role mass <add|remove> @role role <@role…> [reason]',
   category: 'moderation',
 

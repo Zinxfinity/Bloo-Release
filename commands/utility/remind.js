@@ -18,8 +18,8 @@ function parseDuration(str) {
 export default {
   name: 'remind',
   aliases: ['reminder', 'remindme'],
-  description: 'Set a personal reminder.',
-  usage: '{prefix}remind <duration> <message>  |  {prefix}remind list  |  {prefix}remind cancel <id>',
+  description: 'Set a reminder for yourself.',
+  usage: '{prefix}remind <time> <message>\n{prefix}remind list\n{prefix}remind cancel <id>',
   requiredPermission: null,
 
   cooldown: 5,
@@ -52,7 +52,7 @@ export default {
 
     const durationS = parseDuration(args[0]);
     if (!durationS) {
-      return message.reply({ embeds: [Embed.danger('Invalid duration. Examples: `10m`, `2h`, `1d`').toJSON()] });
+      return message.reply({ embeds: [Embed.warning('Bloo didn\'t understand that time. Use a number and a unit, like `10m`, `2h` or `1d`.').toJSON()] });
     }
 
     const reminderMsg = args.slice(1).join(' ');

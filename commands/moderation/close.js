@@ -4,7 +4,7 @@ import { getTicketByChannel, closeTicketWithNotice, canCloseTicket, closeRequire
 export default {
   name: 'close',
   aliases: ['closeticket'],
-  description: 'Close the current ticket channel.',
+  description: 'Close the ticket you\'re in.',
   usage: '{prefix}close [reason]',
 
   requiredPermission: null,

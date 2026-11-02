@@ -82,7 +82,7 @@ function buildStatusEmbed(guildId, prefix) {
 export default {
   name: 'botchannels',
   aliases: ['botchannel', 'commandchannels', 'cmdchannels'],
-  description: 'Restrict which channels bot commands can be used in.',
+  description: 'Choose which channels commands work in. Staff can use commands anywhere.',
   usage: '{prefix}botchannels <enable | disable | clear | check | status> [#channel]',
   category: 'utility',
 

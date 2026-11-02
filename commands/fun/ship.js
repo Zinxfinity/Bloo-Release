@@ -55,7 +55,7 @@ function progressBar(score) {
 export default {
   name: 'ship',
   aliases: ['love', 'compatibility'],
-  description: 'Ship two users and see their love compatibility score.',
+  description: 'Ship two members and see how compatible they are.',
   usage: '{prefix}ship [@user1] [@user2]',
   category: 'fun',
 

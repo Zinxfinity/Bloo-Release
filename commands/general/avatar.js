@@ -5,7 +5,7 @@ import { parseUserMention } from '@fluxerjs/core';
 export default {
   name: 'avatar',
   aliases: ['av', 'pfp'],
-  description: "Show a user's avatar.",
+  description: 'Show a member\'s avatar.',
   usage: '{prefix}avatar [@user|id]',
   requiredPermission: null,
 

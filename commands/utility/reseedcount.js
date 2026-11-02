@@ -12,7 +12,7 @@ import { Embed }      from '../../config/embeds.js';
 export default {
   name: 'reseedcount',
   aliases: ['fixmembercount', 'reseedmembers'],
-  description: 'Reseed the member counter from the live Fluxer API. Use this if {membercount} is showing the wrong number.',
+  description: 'Fix the member count in welcome messages ({membercount}) by recounting from Fluxer.',
   usage: '{prefix}reseedcount',
   category: 'moderation',
   requiredPermission: 'SERVER_OWNER',

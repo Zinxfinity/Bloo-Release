@@ -45,7 +45,7 @@ const FACTS = [
 export default {
   name: 'fact',
   aliases: ['funfact', 'weirdfact'],
-  description: 'Shares a random interesting fact.',
+  description: 'Get a random interesting fact.',
   usage: '{prefix}fact',
   category: 'fun',
 

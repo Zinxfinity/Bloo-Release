@@ -43,7 +43,7 @@ function parseRoleId(arg) {
 export default {
   name: 'rolepersist',
   aliases: ['persistrole', 'rp'],
-  description: 'Persist roles across leave/rejoin. Pin a specific user\'s roles, or set a server rule so anyone with a given role (e.g. @Muted) always gets it back.',
+  description: 'Give members their roles back when they leave and rejoin, for chosen members or chosen roles like @Muted.',
   usage: '{prefix}rolepersist add @user [reason]\n{prefix}rolepersist remove @user\n{prefix}rolepersist list\n{prefix}rolepersist info @user\n{prefix}rolepersist role add @role [reason]\n{prefix}rolepersist role remove @role\n{prefix}rolepersist role list',
   category: 'moderation',
 

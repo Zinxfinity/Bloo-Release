@@ -23,8 +23,8 @@ const RESERVED = new Set(['add', 'remove', 'list', 'info', 'rename']);
 export default {
   name: 'tag',
   aliases: ['tags', 'customcmd', 'cc'],
-  description: 'Custom command shortcuts for your server.',
-  usage: '{prefix}tag <name>  |  add <name> <response>  |  remove <name>  |  list',
+  description: 'Save quick replies anyone can call up by name.',
+  usage: '{prefix}tag <name>\n{prefix}tag add <name> <response>\n{prefix}tag remove <name>\n{prefix}tag list',
   category: 'utility',
 
   requiredPermission: null,

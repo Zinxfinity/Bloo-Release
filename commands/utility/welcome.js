@@ -44,7 +44,7 @@ function onOff(val) { return val ? '✅ Enabled' : '❌ Disabled'; }
 export default {
   name: 'welcome',
   aliases: ['goodbye'],
-  description: 'Configure welcome/goodbye messages and auto-role.',
+  description: 'Welcome new members and say goodbye to leavers, with messages, cards and an auto-role.',
   usage: '{prefix}welcome [channel|message|embed|card|goodbye|autorole|dm|test]',
   category: 'utility',
 
@@ -282,7 +282,12 @@ export default {
           `It shares the welcome card's theme, colours and background. Placeholders: ${PLACEHOLDER_HELP}`,
         ].join('\n'), '👋 Goodbye card').toJSON()] });
       }
-      return message.reply({ embeds: [Embed.warning('Subcommands: `channel`, `message`, `card`').toJSON()] });
+      return message.reply({ embeds: [Embed.info([
+        `\`${prefix}welcome goodbye channel #channel\` where goodbye messages go`,
+        `\`${prefix}welcome goodbye message <text>\` what they say (\`off\` to stop them)`,
+        `\`${prefix}welcome goodbye card on\` add a goodbye card (\`${prefix}welcome goodbye card\` for its options)`,
+        `\`${prefix}welcome goodbye embed on\` send it as an embed`,
+      ].join('\n'), '👋 Goodbye messages').toJSON()] });
     }
 
     // ── autorole ──────────────────────────────────────────────────────────
@@ -319,6 +324,17 @@ export default {
       return message.reply({ embeds: [Embed.success('Test welcome sent (check configured channels).').toJSON()] });
     }
 
-    await message.reply({ embeds: [Embed.info(`Subcommands: \`channel\`, \`message\`, \`card\`, \`goodbye\`, \`autorole\`, \`dm\`, \`test\``).toJSON()] });
+    await message.reply({ embeds: [Embed.info([
+      `\`${prefix}welcome channel #welcome\` where welcome messages go`,
+      `\`${prefix}welcome message Welcome {user}!\` what they say (\`off\` to stop them)`,
+      `\`${prefix}welcome card on\` add a welcome card (\`${prefix}welcome card\` for themes, colours and text)`,
+      `\`${prefix}welcome embed on\` send the message as an embed`,
+      `\`${prefix}welcome dm on\` also DM new members`,
+      `\`${prefix}welcome autorole @role\` give new members a role`,
+      `\`${prefix}welcome goodbye\` messages when someone leaves`,
+      `\`${prefix}welcome test\` see how it looks`,
+      '',
+      '-# Also on the dashboard: Configuration → Welcome & Goodbye.',
+    ].join('\n'), '👋 Welcome messages').toJSON()] });
   },
 };

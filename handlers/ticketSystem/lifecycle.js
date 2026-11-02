@@ -155,7 +155,10 @@ export async function openTicket(client, guildId, userId, username, option) {
           .replace(/\{role\}/g, roleId ? `<@&${roleId}>` : 'the support team')
           .replace(/\{ticket\}/g, caseId)
           .replace(/\{label\}/g, option?.label ?? 'Ticket')
-      : `Hello <@${userId}>, a staff member will be with you shortly.\nReact ${closeEmoji} to any message in this ticket to close it, or run \`${pfx}close\`.`;
+      : (config.opener_can_close ?? 1) !== 0
+        ? `Hello <@${userId}>, a staff member will be with you shortly.\nReact ${closeEmoji} to any message in this ticket to close it, or run \`${pfx}close\`.`
+        // Opener can't close (b!ticket openerclose off): don't tell them how.
+        : `Hello <@${userId}>, a staff member will be with you shortly.\nStaff will close this ticket once it's sorted.`;
 
     const embed = new EmbedBuilder()
       .setColor(COLORS.SUCCESS)

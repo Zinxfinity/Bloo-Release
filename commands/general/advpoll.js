@@ -21,8 +21,8 @@ import { parseAdvPoll, createPoll, attachMessage, buildPollEmbed, getOptions, NU
 export default {
   name: 'advpoll',
   aliases: [],
-  description: 'Create a live-tallied poll with single or multi-choice voting and an expiry date.',
-  usage: '{prefix}advpoll <single|multiple> <dd/MM/yyyy> (then question/description/choices on following lines)',
+  description: 'Make a poll with live results, one or several choices per person, and an end date.',
+  usage: '{prefix}advpoll <single|multiple> <end date dd/MM/yyyy>\n(then the question, a description and each choice, each on its own line)',
   category: 'general',
 
   requiredPermission: null,

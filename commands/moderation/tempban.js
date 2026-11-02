@@ -20,7 +20,7 @@ function parseDuration(str) {
 export default {
   name: 'tempban',
   aliases: ['tb'],
-  description: 'Temporarily ban a member.',
+  description: 'Ban a member for a set time. Bloo unbans them when it\'s up.',
   usage: '{prefix}tempban <@user|id> <duration> [reason]',
   requiredPermission: Permissions.KICK_MEMBERS,
 
@@ -46,7 +46,7 @@ export default {
     const durationS  = parseDuration(durationRaw);
 
     if (!targetId) return message.reply({ embeds: [Embed.danger('Could not resolve that user.').toJSON()] });
-    if (!durationS) return message.reply({ embeds: [Embed.danger('Invalid duration. Examples: `10m`, `2h`, `7d`').toJSON()] });
+    if (!durationS) return message.reply({ embeds: [Embed.warning('Bloo didn\'t understand that time. Use a number and a unit, like `10m`, `2h` or `7d`.').toJSON()] });
 
     // Someone who already left can still be tempbanned (same as !ban); the
     // rank checks only apply to current members and used to block this.

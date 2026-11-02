@@ -374,7 +374,7 @@ async function approveOrDeny(client, message, args, guildId, executorId, action)
 export default {
   name: 'ban',
   aliases: ['b'],
-  description: 'Ban a member. Subcommands: soft, hard, mass, config, override, unlock, pending, approve, deny.',
+  description: 'Ban a member. Also soft and hard bans, mass bans, ban limits and the ban approval queue.',
   usage: '{prefix}ban <@user|id|sub> [args]',
   requiredPermission: Permissions.KICK_MEMBERS,
 

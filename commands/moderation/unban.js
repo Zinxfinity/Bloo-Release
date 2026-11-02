@@ -8,7 +8,7 @@ import { clearPendingTempbans } from '../../handlers/warnSystem.js';
 export default {
   name: 'unban',
   aliases: ['ub'],
-  description: 'Unban a user by ID.',
+  description: 'Unban someone using their user ID.',
   usage: '{prefix}unban <userId> [reason]',
   requiredPermission: Permissions.MANAGE_GUILD,
 

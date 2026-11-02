@@ -113,7 +113,7 @@ async function removeReaction(client, target, emoji, guildId) {
 export default {
   name: 'rr',
   aliases: ['reactionrole'],
-  description: 'Add, remove, or list reaction role mappings on a message.',
+  description: 'Give members a role when they react to a message with a chosen emoji.',
   usage: '{prefix}rr <add | remove | clear | list> [args]',
   category: 'moderation',
 

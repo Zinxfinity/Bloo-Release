@@ -53,7 +53,7 @@ function parseFlags(rest) {
 export default {
   name: 'servergroup',
   aliases: ['sgroup', 'bansync'],
-  description: 'Create/manage server groups for cross-server ban syncing.',
+  description: 'Link servers so a ban in one applies to all of them. Turned off for now.',
   usage: '{prefix}servergroup <create | delete | add | remove | sync | list | listall> [args]',
   category: 'moderation',
 

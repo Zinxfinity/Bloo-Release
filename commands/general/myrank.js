@@ -33,7 +33,7 @@ const PERMISSION_CHECKS = [
 export default {
   name: 'myrank',
   aliases: ['staffrank', 'accesslevel', 'al', 'mylevel', 'myaccess'],
-  description: 'Check your live Fluxer permission summary in this server. Kick Members+ can look up others.',
+  description: 'See which Fluxer permissions Bloo sees you have in this server. Staff with Kick Members can check others.',
   usage: '{prefix}myrank [@user | userId]',
   category: 'general',
 

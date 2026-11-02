@@ -119,7 +119,7 @@ function hexToInt(hex) {
 export default {
   name: 'rolemenu',
   aliases: ['rmenu', 'rm'],
-  description: 'Create and manage reaction role menus where members pick their own roles.',
+  description: 'Make a role menu: one message where members pick their own roles by reacting.',
   usage: '{prefix}rolemenu <create | add | remove | list | config | post | delete | status> [args]',
   category: 'moderation',
 

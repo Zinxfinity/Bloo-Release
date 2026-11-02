@@ -28,7 +28,7 @@ function parseRoll(input) {
 export default {
   name: 'roll',
   aliases: ['dice', 'r'],
-  description: 'Roll dice. Supports NdN notation like `2d6`, `d20`, and `4d10`.',
+  description: 'Roll dice, like 2d6 (two six-sided dice) or d20.',
   usage: '{prefix}roll [NdN]',
   category: 'general',
 

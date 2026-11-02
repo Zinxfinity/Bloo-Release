@@ -19,7 +19,7 @@ function parseDuration(str) {
 export default {
   name: 'giveaway',
   aliases: ['gw'],
-  description: 'Manage giveaways: create, end, reroll, list, pause, resume, extend, edit, bonus, blacklist, entries, delete.',
+  description: 'Run giveaways: start one, end it early, reroll winners, and change entries, bonus roles and rules.',
   usage: '{prefix}giveaway <create|end|reroll|list> [args]\n{prefix}giveaway <pause|resume> <id>\n{prefix}giveaway extend <id> <30m|2h|3d>\n{prefix}giveaway edit <id> <prize|description|winners|role|level|days|ping> <value>\n{prefix}giveaway bonus <id> @role <extra entries|off>\n{prefix}giveaway blacklist <id> <add|remove> @user\n{prefix}giveaway entries <id>\n{prefix}giveaway delete <id>',
   requiredPermission: Permissions.KICK_MEMBERS,
 

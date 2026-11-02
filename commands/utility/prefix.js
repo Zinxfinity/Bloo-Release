@@ -4,8 +4,8 @@ import { Permissions } from '../../config/guildPermissions.js';
 
 export default {
   name: 'prefix',
-  description: 'Set or reset the bot prefix for this server.',
-  usage: '{prefix}prefix <new prefix> | {prefix}prefix reset',
+  description: 'Change what Bloo\'s commands start with, or reset it to b!.',
+  usage: '{prefix}prefix <new prefix>\n{prefix}prefix reset',
   requiredPermission: Permissions.KICK_MEMBERS,
 
   cooldown: 5,

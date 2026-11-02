@@ -25,7 +25,7 @@ function parseUserId(arg) {
 export default {
   name: 'warn',
   aliases: ['w', 'warns', 'warnings'],
-  description: 'Warn a member. Subcommands: warnings, remove, clear, config.',
+  description: 'Warn a member. Also see, remove and clear warnings, and set what happens after a number of them.',
   usage: '{prefix}warn <@user|id> [reason]\n{prefix}warns <@user|id>\n{prefix}warn remove <id>\n{prefix}warn clear <@user|id>\n{prefix}warn config [threshold|warnlog|notice|decay]',
   requiredPermission: Permissions.KICK_MEMBERS,
 
@@ -225,7 +225,7 @@ async function handleConfig(client, message, args, guildId, executorId, prefix) 
     // mute/tempban lasted one second.
     const durS = args[3] ? parseDurationSeconds(args[3]) : null;
     if (args[3] && !durS) {
-      return message.reply({ embeds: [Embed.warning('Invalid duration. Use e.g. `30m`, `12h`, `7d`, or a number of seconds.').toJSON()] });
+      return message.reply({ embeds: [Embed.warning('Bloo didn\'t understand that time. Use a number and a unit, like `30m`, `12h` or `7d`, or just a number of seconds.').toJSON()] });
     }
     setThreshold(guildId, count, action, durS);
     return message.reply({ embeds: [Embed.success(`Set threshold: **${count}** warns → **${action}**${durS ? ` (${args[3]})` : ''}.`).toJSON()] });

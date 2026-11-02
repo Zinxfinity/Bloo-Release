@@ -6,7 +6,7 @@ import { parseUserMention } from '@fluxerjs/core';
 export default {
   name: 'userinfo',
   aliases: ['ui', 'whois'],
-  description: 'Show information about a user.',
+  description: 'Show information about a member.',
   usage: '{prefix}userinfo [@user|id]',
   requiredPermission: null,
 

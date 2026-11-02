@@ -36,8 +36,8 @@ function parseUserId(arg) {
 export default {
   name: 'mute',
   aliases: ['unmute', 'timeout', 'untimeout', 'silence', 'unsilence', 'm'],
-  description: 'Mute/timeout a member. Use `off` to remove. No duration shows status.',
-  usage: '{prefix}mute <@user|id> [duration] [reason]\n{prefix}mute <@user|id> off [reason]\n{prefix}mute <@user|id> , check status\n{prefix}unmute <@user|id> [reason]',
+  description: 'Time out a member so they can\'t talk. Leave out the time to see whether they\'re timed out.',
+  usage: '{prefix}mute <@user|id> <time> [reason]\n{prefix}mute <@user|id> off [reason]\n{prefix}mute <@user|id>  (see whether they\'re timed out)\n{prefix}unmute <@user|id> [reason]',
   requiredPermission: Permissions.MODERATE_MEMBERS,
 
   cooldown: 3,
@@ -91,7 +91,7 @@ export default {
     // Unmute path
     const durationMs = isUnmute ? 0 : parseDuration(args[1]);
     if (!isUnmute && durationMs === null) {
-      return message.reply({ embeds: [Embed.warning(`Invalid duration. Examples: \`30s\`, \`5m\`, \`1h\`, \`7d\`, or \`off\` to unmute.`).toJSON()] });
+      return message.reply({ embeds: [Embed.warning(`Bloo didn't understand that time. Use a number and a unit, like \`30s\`, \`5m\`, \`1h\` or \`7d\`, or \`off\` to remove the timeout.`).toJSON()] });
     }
 
     const isRemoval = isUnmute || durationMs === 0;

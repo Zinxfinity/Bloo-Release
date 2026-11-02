@@ -16,7 +16,7 @@ import { Embed, COLORS } from '../../config/embeds.js';
 export default {
   name: 'quote',
   aliases: ['q'],
-  description: 'Re-post a message as a clean embed by its message ID.',
+  description: 'Repost a message as a clean embed, using its message ID.',
   usage: '{prefix}quote <messageId> [#channel]',
   example: '{prefix}quote 1234567890123456789\n{prefix}quote 1234567890123456789 #general',
   category: 'general',

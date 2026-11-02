@@ -142,7 +142,7 @@ export async function handleAppealDM(message, client) {
 export default {
   name: 'appeal',
   aliases: ['appeals', 'banappeal'],
-  description: 'Review ban appeals: set the appeals channel, list pending appeals, and approve (unbans) or deny them. Banned members appeal by DMing the bot: appeal <server id> <reason>.',
+  description: 'Let banned members appeal, and review their appeals. Banned members DM Bloo: appeal <server id> <reason>.',
   usage: '{prefix}appeal <list | approve <id> [reason] | deny <id> [reason]>\n{prefix}appeal <channel #channel | enable | disable | cooldown <days> | status>',
   category: 'moderation',
   requiredPermission: Permissions.BAN_MEMBERS,

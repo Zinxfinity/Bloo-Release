@@ -16,7 +16,7 @@ import { COLORS } from '../../config/embeds.js';
 export default {
   name: 'choose',
   aliases: ['pick', 'decide'],
-  description: 'Can\'t decide? Give the bot options and it\'ll pick one.',
+  description: 'Can\'t decide? Give Bloo a few options and it picks one.',
   usage: '{prefix}choose option1 | option2 | option3',
   category: 'fun',
 

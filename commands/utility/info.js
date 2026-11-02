@@ -16,7 +16,7 @@ const PKG_VERSION = (() => { try { return JSON.parse(readFileSync(new URL('../..
 export default {
   name: 'info',
   aliases: ['about', 'botinfo'],
-  description: 'View Bloo\'s current version and runtime stats.',
+  description: 'See Bloo\'s version and how it\'s running.',
   usage: '{prefix}info',
   category: 'utility',
 

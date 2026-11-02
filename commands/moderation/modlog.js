@@ -99,7 +99,7 @@ function buildStatusEmbed(msgCfg, modCfg, ignoredIds, prefix, caseChannelId) {
 export default {
   name: 'modlog',
   aliases: ['msglog', 'messagelog', 'mlog'],
-  description: 'Configure the message log and moderation case channels, choose what gets logged, and exclude channels such as staff chat from logging.',
+  description: 'Choose where moderation cases and message logs go, what gets logged, and which channels to leave out.',
   usage: '{prefix}modlog <channel | cases | enable | disable | style | status | ignore | unignore>',
   example:
     '{prefix}modlog channel #mod-logs\n' +

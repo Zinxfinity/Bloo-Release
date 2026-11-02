@@ -14,8 +14,8 @@ function parseDuration(str) {
 export default {
   name: 'schedule',
   aliases: ['sched'],
-  description: 'Schedule an action: message, lock, unlock, announcement.',
-  usage: '{prefix}schedule <add|list|cancel> [args]',
+  description: 'Post a message or announcement, or lock or unlock a channel, at a set time.',
+  usage: '{prefix}schedule add <message|announcement|lock|unlock> #channel <in: 30m, 2h, 1d> [text]\n{prefix}schedule list\n{prefix}schedule cancel <id>',
   requiredPermission: Permissions.KICK_MEMBERS,
 
   cooldown: 5,
@@ -63,6 +63,14 @@ export default {
       return message.reply({ embeds: [Embed.success(`Scheduled **${type}** in <#${channelId}> for <t:${firesAt}:R> (ID: #${id}).`).toJSON()] });
     }
 
-    await message.reply({ embeds: [Embed.warning('Subcommands: `add`, `list`, `cancel`').toJSON()] });
+    await message.reply({ embeds: [Embed.info([
+      `\`${prefix}schedule add message #general 2h Hello everyone!\` post a message in 2 hours`,
+      `\`${prefix}schedule add announcement #news 1d Big news!\` the same, as an announcement`,
+      `\`${prefix}schedule add lock #chat 30m\` lock a channel later (\`unlock\` to open it again)`,
+      `\`${prefix}schedule list\` see what's waiting, with each one's number`,
+      `\`${prefix}schedule cancel 3\` cancel number 3`,
+      '',
+      '-# Times: `30s`, `10m`, `2h`, `1d`. Also on the dashboard: Tools → Scheduled Actions.',
+    ].join('\n'), '🗓️ Scheduled actions').toJSON()] });
   },
 };

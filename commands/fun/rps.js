@@ -27,7 +27,7 @@ function result(player, bot) {
 export default {
   name: 'rps',
   aliases: ['rockpaperscissors'],
-  description: 'Play Rock, Paper, Scissors against the bot.',
+  description: 'Play rock, paper, scissors against Bloo.',
   usage: '{prefix}rps <rock|paper|scissors>',
   category: 'fun',
 

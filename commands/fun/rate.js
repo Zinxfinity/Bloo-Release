@@ -48,7 +48,7 @@ function bar(score) {
 export default {
   name: 'rate',
   aliases: ['ratethis', 'howgood'],
-  description: 'Bot rates anything you give it out of 10.',
+  description: 'Bloo rates anything you give it out of 10.',
   usage: '{prefix}rate <anything>',
   category: 'fun',
 

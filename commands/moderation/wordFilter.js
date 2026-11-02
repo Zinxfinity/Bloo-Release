@@ -24,7 +24,7 @@ import {
 export default {
   name: 'wordfilter',
   aliases: ['wf', 'blacklist', 'wordblacklist'],
-  description: 'Manage the word blacklist to block specific words and phrases in messages and member names.',
+  description: 'Block words and phrases in messages and member names.',
   usage: '{prefix}wordfilter <add|remove|list|clear|config|set> [args]',
   category: 'moderation',
 

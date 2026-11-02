@@ -27,7 +27,7 @@ function parseUserId(arg) {
 export default {
   name: 'mock',
   aliases: ['spongebob', 'mocktext'],
-  description: 'Convert text to SpOnGeBoB mOcKiNg format.',
+  description: 'Turn text, or someone\'s last message, into SpOnGeBoB mOcKiNg text.',
   usage: '{prefix}mock <text or @user>',
   category: 'fun',
 

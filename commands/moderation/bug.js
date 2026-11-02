@@ -34,7 +34,7 @@ function formatBugLine(b) {
 export default {
   name: 'bug',
   aliases: ['bugs', 'bugtrack'],
-  description: 'Log bugs found through tickets and list them by number.',
+  description: 'Keep a numbered list of bugs reported in tickets.',
   usage: '{prefix}bug <add | list>',
   category: 'moderation',
 

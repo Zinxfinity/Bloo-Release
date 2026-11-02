@@ -129,3 +129,48 @@ export function setCommandCooldown(guildId, seconds) {
   cooldownStmts.set.run(value, guildId);
   return value ?? COOLDOWN_MIN_S;
 }
+
+// ─── Command messages ─────────────────────────────────────────────────────────
+// Whether Bloo deletes the message a command was typed in once it has run,
+// per group (b!cmdsettings, or Bloo Core on the dashboard), and whether its
+// replies ping the person. Deleting is the default for every group;
+// developer commands are always deleted. Moderation deletes (blocked
+// channels, shadowbans) happen whatever this says.
+export const CMD_MESSAGE_GROUPS = ['general', 'staff', 'economy'];
+const KEEP_COLS = { general: 'keep_cmd_general', staff: 'keep_cmd_staff', economy: 'keep_cmd_economy' };
+for (const col of [...Object.values(KEEP_COLS).map(c => `${c} INTEGER NOT NULL DEFAULT 0`), 'reply_ping INTEGER NOT NULL DEFAULT 1']) {
+  try { db.exec(`ALTER TABLE guild_settings ADD COLUMN ${col}`); } catch { /* already there */ }
+}
+const cmdMsgGet = db.prepare(`SELECT ${Object.values(KEEP_COLS).join(', ')}, reply_ping FROM guild_settings WHERE guild_id = ?`);
+
+export function getCommandMessageSettings(guildId) {
+  const r = cmdMsgGet.get(guildId);
+  return {
+    keep: Object.fromEntries(CMD_MESSAGE_GROUPS.map(g => [g, !!r?.[KEEP_COLS[g]]])),
+    replyPing: r ? !!r.reply_ping : true,
+  };
+}
+
+// key: 'general' | 'staff' | 'economy' (keep the command message) or 'ping'.
+export function setCommandMessageSetting(guildId, key, on) {
+  const col = key === 'ping' ? 'reply_ping' : KEEP_COLS[key];
+  if (!col) throw new RangeError(`Unknown command message setting: ${key}`);
+  ensureGuild(guildId);
+  db.prepare(`UPDATE guild_settings SET ${col} = ?, updated_at = unixepoch() WHERE guild_id = ?`).run(on ? 1 : 0, guildId);
+  return getCommandMessageSettings(guildId);
+}
+
+// Which group a command's message falls under, or 'developer' (always deleted).
+export function commandMessageGroup(command) {
+  if (!command) return 'general';
+  if (command.category === 'debug' || command.requiredPermission === 'BOT_OWNER') return 'developer';
+  if (command.category === 'economy') return 'economy';
+  return command.requiredPermission != null ? 'staff' : 'general';
+}
+
+// Delete the command message after it ran? tag = a b!tag response (general).
+export function shouldDeleteCommandMessage(guildId, command) {
+  const group = commandMessageGroup(command);
+  if (group === 'developer') return true;
+  return !getCommandMessageSettings(guildId).keep[group];
+}

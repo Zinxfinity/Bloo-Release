@@ -19,7 +19,7 @@ import {
 export default {
   name: 'alias',
   aliases: ['cmdalias'],
-  description: 'Create per-server command aliases by mapping a custom trigger to an existing command.',
+  description: 'Add your own names for commands, like {prefix}w for {prefix}warn.',
   usage: '{prefix}alias set <trigger> <command>\n{prefix}alias remove <trigger>\n{prefix}alias list\n{prefix}alias clear',
   category: 'utility',
 

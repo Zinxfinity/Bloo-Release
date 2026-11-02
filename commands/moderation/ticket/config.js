@@ -193,6 +193,26 @@ export async function handleConfig({ message, client, prefix, guildId, subCmd, r
       return;
     }
 
+    // ── !ticket openerclose on|off ───────────────────────
+    // Whether the person who opened a ticket can close it themselves. Off
+    // leaves closing to the support role and staff.
+    case 'openerclose': {
+      const v = rest[0]?.toLowerCase();
+      if (!['on', 'off'].includes(v)) {
+        const now = (getConfig(guildId)?.opener_can_close ?? 1) !== 0;
+        await message.reply({ embeds: [Embed.info(
+          `Right now **${now ? 'the person who opened a ticket can close it' : 'only staff can close tickets'}**.\n\n` +
+          `\`${PREFIX}ticket openerclose on\`: the opener, the support role and staff can close it (default).\n` +
+          `\`${PREFIX}ticket openerclose off\`: only the support role and staff can.`, 'Who can close a ticket').toJSON()] }).catch(() => {});
+        return;
+      }
+      setTicketField(guildId, 'opener_can_close', v === 'on' ? 1 : 0);
+      await message.reply({ embeds: [Embed.success(v === 'on'
+        ? 'People can close their own tickets again, as well as the support role and staff.'
+        : 'Only the support role and staff can close tickets now. New tickets won\'t tell the opener how to close them.').toJSON()] }).catch(() => {});
+      return;
+    }
+
     // ── !ticket remove ────────────────────────────────────
     // Deletes the live panel from Fluxer and clears the panel_message_id
     // from the DB so the next `!ticket panel` posts fresh without conflicts.
@@ -303,6 +323,7 @@ export async function handleConfig({ message, client, prefix, guildId, subCmd, r
           { name: 'Panel Message',   value: cfg.panel_message_id ? `\`${cfg.panel_message_id}\`` : '❌ not posted', inline: true },
           { name: 'Delete Delay',    value: `${cfg.close_delay_seconds ?? 10}s`,                 inline: true },
           { name: 'Close Emoji',     value: cfg.close_emoji || '❌',                             inline: true },
+          { name: 'Who Can Close',   value: (cfg.opener_can_close ?? 1) !== 0 ? 'Opener and staff' : 'Staff only', inline: true },
           { name: 'Options',         value: options.length
             ? options.map(o => `${o.emoji} ${o.label}`).join('\n')
             : '❌ none',
@@ -317,5 +338,5 @@ export async function handleConfig({ message, client, prefix, guildId, subCmd, r
 
 export const CONFIG_SUBCOMMANDS = new Set([
   'setup', 'channel', 'category', 'role', 'title', 'description',
-  'icon', 'banner', 'color', 'delay', 'remove', 'panel', 'status', 'closeemoji',
+  'icon', 'banner', 'color', 'delay', 'remove', 'panel', 'status', 'closeemoji', 'openerclose',
 ]);

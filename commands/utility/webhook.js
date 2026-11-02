@@ -28,7 +28,7 @@ export function parseAddArgs(words) {
 export default {
   name: 'webhook',
   aliases: ['feed', 'rss'],
-  description: 'Manage RSS/Atom/JSON feed subscriptions, including X/Twitter via twitter:<handle>.',
+  description: 'Post new items from RSS, YouTube and other feeds into a channel automatically.',
   usage: '{prefix}webhook <add|edit|ping|check|alert|remove|list|enable|disable> [args]',
   requiredPermission: Permissions.BAN_MEMBERS,
 
@@ -200,6 +200,14 @@ export default {
       return message.reply({ embeds: [Embed.success(`Feed #${id} ${enabled ? 'enabled' : 'disabled'}.`).toJSON()] });
     }
 
-    await message.reply({ embeds: [Embed.warning(`Subcommands: \`add\`, \`edit\`, \`ping\`, \`check\`, \`remove\`, \`list\`, \`enable\`, \`disable\``).toJSON()] });
+    await message.reply({ embeds: [Embed.info([
+      `\`${prefix}webhook add "Patch Notes" https://example.com/feed.xml #news\` follow a feed (add a number of minutes at the end to check less often)`,
+      `\`${prefix}webhook list\` your feeds, with each one's number`,
+      `\`${prefix}webhook ping 3 @Updates\` ping a role for new posts (\`off\` to stop)`,
+      `\`${prefix}webhook edit 3 channel #other\` change a feed's name, url, channel or interval`,
+      `\`${prefix}webhook check 3\` check it right now`,
+      `\`${prefix}webhook disable 3\` / \`enable 3\` pause or resume it · \`${prefix}webhook remove 3\` delete it`,
+      `\`${prefix}webhook alert #mod-alerts @Mods\` where to say when a feed pauses itself`,
+    ].join('\n'), '📡 Feeds').toJSON()] });
   },
 };

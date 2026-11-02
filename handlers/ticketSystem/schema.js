@@ -136,6 +136,10 @@ for (const col of [
   // embed and react by default: a screenshot is usually the first thing
   // someone wants to send in a support ticket.
   `ALTER TABLE ticket_config ADD COLUMN opener_perms TEXT NOT NULL DEFAULT 'attach,embed,react'`,
+  // Whether the person who opened a ticket can close it themselves. On by
+  // default; off leaves closing to the support role and staff
+  // (handlers/ticketSystem/permissions.js canCloseTicket).
+  `ALTER TABLE ticket_config ADD COLUMN opener_can_close INTEGER NOT NULL DEFAULT 1`,
   // When set, this closed ticket's channel is due for deletion at this unix
   // timestamp. A plain in-memory setTimeout doesn't survive a bot restart
   // within the delay window, the channel would just never get deleted,

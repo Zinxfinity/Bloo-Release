@@ -2,7 +2,7 @@ import { Embed } from '../../config/embeds.js';
 
 export default {
   name: 'ping',
-  description: 'Check bot latency and uptime.',
+  description: 'Check how fast Bloo responds and how long it\'s been online.',
   usage: '{prefix}ping',
   requiredPermission: null,
 

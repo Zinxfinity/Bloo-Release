@@ -18,7 +18,7 @@ import { parseUserMention } from '@fluxerjs/core';
 export default {
   name: 'profile',
   aliases: ['pfc'], // not "card": that's the b!card command
-  description: 'View your profile card: XP, level, and rank.',
+  description: 'Show your profile card, with your XP, level and rank.',
   usage: '{prefix}profile [@user | userId]',
   category: 'general',
 

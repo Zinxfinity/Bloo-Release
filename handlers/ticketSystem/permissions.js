@@ -97,8 +97,14 @@ export function ticketSupportRoles(guildId, ticket) {
   return [...new Set([option?.support_role_id, getTicketConfig(guildId)?.support_role_id].filter(Boolean))];
 }
 
+// Whether a ticket's opener may close it (b!ticket openerclose, or the
+// dashboard's ticket settings). On unless the server turned it off.
+export function openerCanClose(guildId) {
+  return (getTicketConfig(guildId)?.opener_can_close ?? 1) !== 0;
+}
+
 export async function canCloseTicket(client, guildId, ticket, userId) {
-  if (ticket.user_id === userId) return true;
+  if (ticket.user_id === userId && openerCanClose(guildId)) return true;
   const roles = ticketSupportRoles(guildId, ticket);
   if (roles.length) {
     const member = await client.rest.get(`/guilds/${guildId}/members/${userId}`).catch(() => null);
@@ -111,8 +117,9 @@ export async function canCloseTicket(client, guildId, ticket, userId) {
 // the Kick Members permission can close it."
 export function closeRequirementText(guildId, ticket) {
   const roles = ticketSupportRoles(guildId, ticket).map(r => `<@&${r}>`);
-  const who = ['the person who opened this ticket'];
+  const who = openerCanClose(guildId) ? ['the person who opened this ticket'] : [];
   if (roles.length) who.push(`the ${roles.join(' or ')} role`);
   who.push(`someone with ${requirementPhrase(guildId, 'close', Permissions.KICK_MEMBERS)}`);
-  return `Only ${who.slice(0, -1).join(', ')}, or ${who.at(-1)} can close it.`;
+  const list = who.length === 1 ? who[0] : `${who.slice(0, -1).join(', ')}${who.length > 2 ? ',' : ''} or ${who.at(-1)}`;
+  return `Only ${list} can close it.${openerCanClose(guildId) ? '' : ' Ask staff here if you\'re done.'}`;
 }

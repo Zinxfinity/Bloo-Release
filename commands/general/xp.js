@@ -30,8 +30,8 @@ import { parseUserMention } from '@fluxerjs/core';
 export default {
   name: 'xp',
   aliases: ['level', 'lvl'],
-  description: 'XP system management.',
-  usage: '{prefix}xp [config|leaderboard|rank|reset|prune|rolereward]\n{prefix}xp <give|take|set> @user <amount>\n{prefix}xp syncroles\n{prefix}xp multiplier [<#channel|@role> <0-10|reset>]\n{prefix}xp boost [<multiplier> <hours> [label] | end <id>]\n{prefix}xp level [set <level> <xp> <name> | remove <level>]',
+  description: 'Members earn XP for chatting, level up and get reward roles. Run {prefix}xp help for every XP command.',
+  usage: '{prefix}xp help\n{prefix}xp [config|leaderboard|rank|reset|prune|rolereward]\n{prefix}xp <give|take|set> @user <amount>\n{prefix}xp syncroles\n{prefix}xp multiplier [<#channel|@role> <0-10|reset>]\n{prefix}xp boost [<multiplier> <hours> [label] | end <id>]\n{prefix}xp level [set <level> <xp> <name> | remove <level>]',
   requiredPermission: null,
   internalAccess: true, // subcommands gate themselves via resolveAccess
 
@@ -43,6 +43,7 @@ export default {
     const sub        = args[0]?.toLowerCase();
 
     if (!sub) return handleRank(client, message, [], guildId, executorId, prefix);
+    if (sub === 'help')        return message.reply({ embeds: [xpHelp(prefix).toJSON()] });
     if (sub === 'rank')        return handleRank(client, message, args.slice(1), guildId, executorId, prefix);
     if (sub === 'leaderboard' || sub === 'lb') return handleLeaderboard(message, args.slice(1), guildId, prefix);
     if (sub === 'config')      return handleConfig(client, message, args.slice(1), guildId, executorId, prefix);
@@ -53,7 +54,9 @@ export default {
     if (sub === 'syncroles')   return handleSyncRoles(client, message, guildId, executorId);
     if (['multiplier', 'multi', 'boost', 'level', 'levels'].includes(sub)) return handleXpSettings(client, message, sub, args.slice(1), guildId, executorId, prefix);
 
-    await message.reply({ embeds: [Embed.warning(`Unknown subcommand. Use \`${prefix}xp rank|leaderboard|config|reset|prune|rolereward|give|take|set|syncroles|multiplier|boost|level\``).toJSON()] });
+    // Probably a member: b!xp @user shows their rank, like b!xp rank @user.
+    if (/^<@!?\d+>$|^\d{15,25}$/.test(args[0])) return handleRank(client, message, args, guildId, executorId, prefix);
+    await message.reply({ embeds: [Embed.warning(`\`${sub}\` isn't an XP command. Run \`${prefix}xp help\` to see them all.`).toJSON()] });
   },
 };
 
@@ -141,6 +144,82 @@ async function handleLeaderboard(message, args, guildId, prefix) {
   await message.reply({ embeds: [embed.toJSON()] });
 }
 
+// ── XP settings, described for people ───────────────────────────────────────
+// Every setting b!xp config can change, in the order the overview shows
+// them. kind toggle = on/off. show() is the current value in words.
+const onOff = v => (v ? 'On' : 'Off');
+const XP_SETTINGS = [
+  { group: 'Earning XP', key: 'enabled', col: 'enabled', kind: 'toggle', label: 'XP', what: 'Whether members earn XP for chatting at all.', example: 'off', show: c => onOff(c.enabled) },
+  { group: 'Earning XP', key: 'min', col: 'xp_min', label: 'XP per message, lowest', what: 'Each message earns a random amount of XP between the lowest and highest.', example: '15', show: c => `${c.xp_min} XP` },
+  { group: 'Earning XP', key: 'max', col: 'xp_max', label: 'XP per message, highest', what: 'Each message earns a random amount of XP between the lowest and highest.', example: '25', show: c => `${c.xp_max} XP` },
+  { group: 'Earning XP', key: 'cooldown', col: 'xp_cooldown_s', label: 'Wait between XP', what: 'How many seconds before a member\'s next message earns XP again, so spamming doesn\'t help.', example: '60', show: c => `${c.xp_cooldown_s} seconds` },
+  { group: 'Level-ups', key: 'levels', col: 'levels_enabled', kind: 'toggle', label: 'Levelling up', what: 'Off: XP still builds up quietly, but nobody levels up or earns reward roles.', example: 'on', show: c => onOff(c.levels_enabled ?? 1) },
+  { group: 'Level-ups', key: 'notify', col: 'levelup_notify', kind: 'toggle', label: 'Level-up messages', what: 'Post a message when someone levels up. Off still gives reward roles, just quietly.', example: 'off', show: c => onOff(c.levelup_notify ?? 1) },
+  { group: 'Level-ups', key: 'channel', col: 'levelup_channel', label: 'Level-up channel', what: 'Where level-up messages go. `none` posts them where the member was talking.', example: '#level-ups', show: c => (c.levelup_channel ? `<#${c.levelup_channel}>` : 'where the member was talking') },
+  { group: 'Level-ups', key: 'message', col: 'levelup_message', label: 'Level-up message', what: 'What the message says. You can use {user} {username} {level} {level_name} {xp} {roles} {next_level} {next_xp}.', example: 'GG {user}, you reached level {level}!', show: c => (c.levelup_message ? `"${c.levelup_message.slice(0, 80)}${c.levelup_message.length > 80 ? '…' : ''}"` : 'Bloo\'s default') },
+  { group: 'Level-ups', key: 'color', aliases: ['colour'], col: 'levelup_color', label: 'Level-up colour', what: 'The colour down the side of the level-up message. `none` for the default.', example: '#4ADE80', show: c => c.levelup_color ?? 'default' },
+  { group: 'Level-ups', key: 'image', col: 'levelup_image', label: 'Level-up banner', what: 'An image link shown in the level-up message. `none` to remove it.', example: 'https://example.com/banner.png', show: c => (c.levelup_image ? 'set' : 'none') },
+  { group: 'Reward roles', key: 'rolerewards', col: 'role_rewards', kind: 'toggle', label: 'Reward roles', what: 'Whether members get the reward roles you\'ve set up when they reach a level. This only switches them on or off: add the roles themselves with `{p}xp rolereward add <level> @role`.', example: 'on', show: c => onOff(c.role_rewards ?? 1) },
+  { group: 'Reward roles', key: 'stackroles', col: 'stack_roles', kind: 'toggle', label: 'Keep earlier reward roles', what: 'On: members keep every reward role on the way up. Off: they only keep the highest one.', example: 'off', show: c => onOff(c.stack_roles) },
+  { group: 'XP decay', key: 'decay', col: 'decay_enabled', kind: 'toggle', label: 'XP decay', what: 'Slowly lower XP for members who stop talking, so the leaderboard shows who\'s active now.', example: 'on', show: c => onOff(c.decay_enabled) },
+  { group: 'XP decay', key: 'decayrate', col: 'decay_rate_pct', label: 'How much XP is lost', what: 'The percentage of XP lost each time (0 to 100).', example: '5', show: c => `${c.decay_rate_pct}%` },
+  { group: 'XP decay', key: 'decaydays', col: 'decay_interval_days', label: 'Quiet days before losing XP', what: 'How many days without earning XP before a member loses some, and again after each further stretch.', example: '7', show: c => `${c.decay_interval_days} days` },
+  { group: 'XP decay', key: 'decayfloormode', col: 'decay_floor_mode', label: 'Lowest XP can go', what: '`xp`: never below the XP amount set with `decayfloor`. `level`: never below the level they\'re at, so nobody loses a level.', example: 'level', show: c => (c.decay_floor_mode === 'level' ? 'their current level' : `${(c.decay_floor_xp ?? 0).toLocaleString()} XP`) },
+  { group: 'XP decay', key: 'decayfloor', col: 'decay_floor_xp', label: 'Lowest XP amount', what: 'With the floor set to `xp`, XP never decays below this amount.', example: '1000', show: c => `${(c.decay_floor_xp ?? 0).toLocaleString()} XP` },
+  { group: 'XP decay', key: 'decayroles', col: 'role_remove_on_decay', kind: 'toggle', label: 'Take reward roles back', what: 'If decay drops a member below a reward\'s level, take that role back.', example: 'on', show: c => onOff(c.role_remove_on_decay) },
+];
+
+function closestSetting(word) {
+  const w = word.toLowerCase();
+  const all = XP_SETTINGS.flatMap(x => [x.key, ...(x.aliases ?? [])].map(k => [k, x]));
+  const starts = all.find(([k]) => k.startsWith(w) || w.startsWith(k));
+  if (starts) return starts[1];
+  // Fewest single-letter changes, for typos like "rolereward" or "cooldwn".
+  const dist = (a, b) => { const d = Array.from({ length: a.length + 1 }, (_, i) => [i]); for (let j = 1; j <= b.length; j++) d[0][j] = j; for (let i = 1; i <= a.length; i++) for (let j = 1; j <= b.length; j++) d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1)); return d[a.length][b.length]; };
+  const [best] = all.map(([k, x]) => [dist(w, k), x]).sort((a, b) => a[0] - b[0]);
+  return best && best[0] <= 3 ? best[1] : null;
+}
+
+function xpConfigOverview(c, P) {
+  const embed = new EmbedBuilder().setColor(COLORS.INFO).setTitle('XP settings')
+    .setDescription(`Change one with \`${P}xp config <setting> <value>\`, or run \`${P}xp config <setting>\` to see what it does. Everything here is also on the dashboard's XP page.`);
+  for (const group of [...new Set(XP_SETTINGS.map(x => x.group))]) {
+    const lines = XP_SETTINGS.filter(x => x.group === group)
+      .map(x => `**${x.label}**: ${x.show(c)} · \`${P}xp config ${x.key} ${x.kind === 'toggle' ? 'on|off' : x.example}\``);
+    if (group === 'Reward roles') lines.push(`Set up the roles: \`${P}xp rolereward add <level> @role\` · see them: \`${P}xp rolereward\``);
+    embed.addFields({ name: group, value: lines.join('\n'), inline: false });
+  }
+  const streak = getStreakSettings();
+  embed.setFooter({ text: `Streak bonus: ${streak.enabled ? `+${streak.bonus_pct}% (${streak.mode === 'week' ? 'weekly' : 'daily'}), set by Bloo for every server` : 'off'}. More: ${P}xp help` });
+  return embed;
+}
+
+function xpSettingHelp(x, c, P) {
+  return new EmbedBuilder().setColor(COLORS.INFO).setTitle(x.label)
+    .setDescription(`${x.what.replaceAll('{p}', P)}\n\n**Right now:** ${x.show(c)}\n**Change it:** \`${P}xp config ${x.key} ${x.kind === 'toggle' ? 'on' : x.example}\`${x.kind === 'toggle' ? ` or \`off\`` : ''}`);
+}
+
+function xpHelp(P) {
+  return new EmbedBuilder().setColor(COLORS.INFO).setTitle('XP commands')
+    .addFields(
+      { name: 'For everyone', value: [`\`${P}xp\` your rank card`, `\`${P}xp rank @user\` someone else's`, `\`${P}xp leaderboard\` the top members`].join('\n'), inline: false },
+      { name: 'Setting it up (Ban Members)', value: [
+        `\`${P}xp config\` every setting, with how to change it`,
+        `\`${P}xp rolereward add <level> @role\` give a role at a level`,
+        `\`${P}xp level set <level> <xp> <name>\` name a level and choose its XP`,
+        `\`${P}xp multiplier #channel 2\` more (or less) XP somewhere`,
+        `\`${P}xp boost 2 24 Double XP weekend\` a timed XP boost`,
+      ].join('\n'), inline: false },
+      { name: 'Members\' XP (Ban Members)', value: [
+        `\`${P}xp give|take|set @user <amount>\` adjust someone's XP`,
+        `\`${P}xp reset @user\` or \`${P}xp reset all\` clear XP`,
+        `\`${P}xp syncroles\` fix reward roles after a change`,
+        `\`${P}xp prune\` remove XP for people who left`,
+      ].join('\n'), inline: false },
+    )
+    .setFooter({ text: `Start over on the XP settings (members keep their XP): ${P}reset xp` });
+}
+
 async function handleConfig(client, message, args, guildId, executorId, prefix) {
   if (!await resolveAccess(client, guildId, executorId, 'xp', Permissions.BAN_MEMBERS)) {
     return message.reply({ embeds: [Embed.denied('Ban Members or higher required.').toJSON()] });
@@ -150,60 +229,23 @@ async function handleConfig(client, message, args, guildId, executorId, prefix) 
   // The message is free text, so take everything after the field name
   // (it used to keep only the first word).
   const value = field === 'message' ? args.slice(1).join(' ').trim() : args[1];
-  const onOff = c => (c ? 'On' : 'Off');
+  const config = getXpConfig(guildId);
 
-  if (!field || !value) {
-    const config = getXpConfig(guildId);
-    const embed  = new EmbedBuilder()
-      .setColor(COLORS.INFO)
-      .setTitle('XP Config')
-      .addFields(
-        { name: 'Enabled',          value: config.enabled ? 'Yes' : 'No', inline: true },
-        { name: 'XP Range',         value: `${config.xp_min}–${config.xp_max}`,  inline: true },
-        { name: 'Cooldown',         value: `${config.xp_cooldown_s}s`,    inline: true },
-        { name: 'Level-up Channel', value: config.levelup_channel ? `<#${config.levelup_channel}>` : 'Where the member is talking', inline: true },
-        { name: 'Stack Roles',      value: config.stack_roles ? 'Yes' : 'No', inline: true },
-        { name: 'Levels',           value: onOff(config.levels_enabled ?? 1), inline: true },
-        { name: 'Level-up Message', value: (config.levelup_notify ?? 1) ? 'Posted' : 'Not posted', inline: true },
-        { name: 'Reward Roles',     value: onOff(config.role_rewards ?? 1), inline: true },
-        { name: 'Embed Colour',     value: config.levelup_color ?? 'Default', inline: true },
-        { name: 'Banner Image',     value: config.levelup_image ? 'Set' : 'None', inline: true },
-        { name: 'Streak Bonus',     value: (s => s.enabled ? `+${s.bonus_pct}% (${s.mode === 'week' ? 'weekly' : 'daily'}, all servers)` : 'Off')(getStreakSettings()), inline: true },
-        { name: 'Decay',            value: config.decay_enabled
-            ? `${config.decay_rate_pct}% after ${config.decay_interval_days} quiet days, never below ${config.decay_floor_mode === 'level' ? 'level' : ''} ${(config.decay_floor_xp ?? 0).toLocaleString()}${config.decay_floor_mode === 'level' ? '' : ' XP'}${config.role_remove_on_decay ? ', reward roles removed' : ''}`
-            : 'Off', inline: false },
-      )
-      .setFooter({ text: `${prefix}xp config <setting> <value>. Settings: enabled, min, max, cooldown, channel, message, stackroles, levels, notify, rolerewards, color, image, decay, decayrate, decaydays, decayfloor, decayfloormode, decayroles` });
-    return message.reply({ embeds: [embed.toJSON()] });
+  // No setting named: every setting, grouped, in plain words.
+  if (!field) return message.reply({ embeds: [xpConfigOverview(config, prefix).toJSON()] });
+
+  const setting = XP_SETTINGS.find(x => x.key === field || x.aliases?.includes(field));
+  if (!setting) {
+    const guess = closestSetting(field);
+    return message.reply({ embeds: [Embed.warning(
+      `There's no XP setting called \`${field}\`.` +
+      (guess ? ` Did you mean \`${guess.key}\` (${guess.label.toLowerCase()})?` : '') +
+      `\n\nRun \`${prefix}xp config\` to see every setting and how to change it.`).toJSON()] });
   }
+  // A setting with nothing after it: explain just that one.
+  if (!value) return message.reply({ embeds: [xpSettingHelp(setting, config, prefix).toJSON()] });
 
-  const fieldMap = {
-    enabled:    'enabled',
-    min:        'xp_min',
-    max:        'xp_max',
-    cooldown:   'xp_cooldown_s',
-    channel:    'levelup_channel',
-    message:    'levelup_message',
-    stackroles: 'stack_roles',
-    // Same settings as the dashboard's XP page.
-    levels:         'levels_enabled',
-    notify:         'levelup_notify',
-    rolerewards:    'role_rewards',
-    color:          'levelup_color',
-    colour:         'levelup_color',
-    image:          'levelup_image',
-    decay:          'decay_enabled',
-    decayrate:      'decay_rate_pct',
-    decaydays:      'decay_interval_days',
-    decayfloor:     'decay_floor_xp',
-    decayfloormode: 'decay_floor_mode',
-    decayroles:     'role_remove_on_decay',
-  };
-
-  const dbField = fieldMap[field];
-  if (!dbField) {
-    return message.reply({ embeds: [Embed.warning(`Unknown field. Valid: ${Object.keys(fieldMap).join(', ')}`).toJSON()] });
-  }
+  const dbField = setting.col;
 
   const warn = (text) => message.reply({ embeds: [Embed.warning(text).toJSON()] });
   let parsed;
@@ -212,19 +254,19 @@ async function handleConfig(client, message, args, guildId, executorId, prefix) 
     const v = value.toLowerCase();
     if (['true', '1', 'on', 'yes'].includes(v)) parsed = 1;
     else if (['false', '0', 'off', 'no'].includes(v)) parsed = 0;
-    else return warn('Use `on` or `off`.');
+    else return warn(`**${setting.label}** is on or off: \`${prefix}xp config ${setting.key} on\` or \`off\`.`);
   } else if (['xp_min', 'xp_max', 'xp_cooldown_s'].includes(dbField)) {
     parsed = Number(value);
     const max = dbField === 'xp_cooldown_s' ? 86400 : 10000;
-    if (!Number.isInteger(parsed) || parsed < 0 || parsed > max) return warn(`\`${field}\` must be a whole number from 0 to ${max}.`);
+    if (!Number.isInteger(parsed) || parsed < 0 || parsed > max) return warn(`**${setting.label}** has to be a whole number from 0 to ${max.toLocaleString()}.`);
     const cfg = getXpConfig(guildId);
     if ((dbField === 'xp_min' && parsed > cfg.xp_max) || (dbField === 'xp_max' && parsed < cfg.xp_min)) {
-      return warn(`Min can't be above max (currently ${cfg.xp_min}–${cfg.xp_max}).`);
+      return warn(`The lowest XP per message can't be more than the highest. Right now they're ${cfg.xp_min} and ${cfg.xp_max}, so change the other one first.`);
     }
   } else if (RANGES[dbField]) {
     const [lo, hi, unit] = RANGES[dbField];
     parsed = Number(value);
-    if (!Number.isInteger(parsed) || parsed < lo || parsed > hi) return warn(`\`${field}\` must be a whole number from ${lo} to ${hi.toLocaleString()}${unit}.`);
+    if (!Number.isInteger(parsed) || parsed < lo || parsed > hi) return warn(`**${setting.label}** has to be a whole number from ${lo} to ${hi.toLocaleString()}${unit}.`);
   } else if (dbField === 'decay_floor_mode') {
     parsed = value.toLowerCase();
     if (!['xp', 'level'].includes(parsed)) return warn('Use `xp` (never drop below that much XP) or `level` (never drop below that level).');
@@ -247,7 +289,17 @@ async function handleConfig(client, message, args, guildId, executorId, prefix) 
   }
 
   setXpConfigField(guildId, dbField, parsed);
-  await message.reply({ embeds: [Embed.success(`Set \`${field}\` to \`${value}\`.`).toJSON()] });
+  // On/off settings say what changed in words. "rolerewards" is only the
+  // switch, but people try to set the rewards with it (b!xp config
+  // rolerewards 1 @Role); point them at the command that does.
+  const extra = args.slice(2).length && field !== 'message';
+  const hint = dbField === 'role_rewards' && (extra || /<@&\d+>/.test(args.join(' ')))
+    ? `\n\nThis only turns reward roles on or off, so the role${args.slice(2).length > 1 ? 's' : ''} you added weren't used. To give a role at a level: \`${prefix}xp rolereward add <level> @role\` (one role per command). See them with \`${prefix}xp rolereward\`.`
+    : extra ? `\n\n-# Only \`${value}\` was used; anything after it was ignored.` : '';
+  const text = setting.kind === 'toggle'
+    ? `${setting.label} turned ${parsed ? '**on**' : '**off**'}.`
+    : `${setting.label}: now ${setting.show(getXpConfig(guildId))}.`;
+  await message.reply({ embeds: [Embed.success(text + hint).toJSON()] });
 }
 
 async function handleReset(client, message, args, guildId, executorId, prefix) {
@@ -306,7 +358,7 @@ async function handleRoleReward(client, message, args, guildId, executorId, pref
     const level  = parseInt(args[1], 10);
     const roleId = args[2]?.replace(/\D/g, '');
     if (!level || !roleId) {
-      return message.reply({ embeds: [Embed.warning(`Usage: \`${prefix}xp rolereward add <level> @role\``).toJSON()] });
+      return message.reply({ embeds: [Embed.warning(`Usage: \`${prefix}xp rolereward add <level> @role\`, one role at a time. For example \`${prefix}xp rolereward add 5 @Regular\` gives Regular to everyone who reaches level 5.`).toJSON()] });
     }
     // Level-ups hand this role out automatically, so whoever sets it up has
     // to be able to give it themselves.
@@ -333,10 +385,14 @@ async function handleRoleReward(client, message, args, guildId, executorId, pref
   // List
   const rewards = getRoleRewards(guildId);
   if (!rewards.length) {
-    return message.reply({ embeds: [Embed.info('No role rewards configured.').toJSON()] });
+    return message.reply({ embeds: [Embed.info(`No reward roles yet. Add one with \`${prefix}xp rolereward add <level> @role\`, for example \`${prefix}xp rolereward add 5 @Regular\`.`, 'Reward roles').toJSON()] });
   }
   const lines = rewards.map(r => `Level **${r.level}** → <@&${r.role_id}>`);
-  await message.reply({ embeds: [Embed.info(lines.join('\n'), 'Role Rewards').toJSON()] });
+  // Rewards set up while the switch is off are a common mix-up: say so.
+  const off = !(getXpConfig(guildId).role_rewards ?? 1);
+  await message.reply({ embeds: [Embed.info(lines.join('\n') + '\n\n' + (off
+    ? `⚠️ Reward roles are switched **off**, so these aren't being given. Turn them on with \`${prefix}xp config rolerewards on\`.`
+    : `-# Add more with \`${prefix}xp rolereward add <level> @role\`, remove one with \`${prefix}xp rolereward remove <level> @role\`.`), 'Reward roles').toJSON()] });
 }
 
 // ─── give / take / set ────────────────────────────────────────────────────────

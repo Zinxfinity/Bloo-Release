@@ -40,6 +40,10 @@ import { Embed }        from '../../config/embeds.js';
 import { checkCommandAccess, getCommandConfig } from '../../handlers/commandPermissions.js';
 import { Permissions } from '../../config/guildPermissions.js';
 import { isChannelInGuild } from '../../utils/channelGuard.js';
+import {
+  createEmbedMessage, updateEmbedMessage, publishEmbedMessage, deleteEmbedMessage,
+  getEmbedMessage, listEmbedMessages, EmbedMessageError,
+} from '../../handlers/embedMessages.js';
 
 const PERM_NAMES = new Map([
   [Permissions.KICK_MEMBERS,     'Kick Members'],
@@ -112,8 +116,8 @@ function parseNewlines(str) {
 export default {
   name: 'embed',
   aliases: ['say', 'embedsay'],
-  description: 'Post a custom embed to a channel.',
-  usage: '{prefix}embed [colour] <title> ;; <description> [>> #channel]',
+  description: 'Post an embed and edit it later. Saved embeds are also on the dashboard\'s Embed Messages page.',
+  usage: '{prefix}embed [colour] <title> ;; <description> [>> #channel]\n{prefix}embed list\n{prefix}embed edit <id> <title|description|colour|image|thumbnail|footer|author|link|text|timestamp> <value|off>\n{prefix}embed field <id> add <name> ;; <value>\n{prefix}embed post <id> [#channel]\n{prefix}embed delete <id> [keep]',
   category: 'utility',
   requiredPermission: Permissions.KICK_MEMBERS,
 
@@ -140,6 +144,15 @@ export default {
     if (!input) {
       await message.reply({ embeds: [buildHelp(PREFIX).toJSON()] }).catch(() => {});
       return;
+    }
+
+    // ── Saved embeds: list / edit / field / post / delete ──────
+    // Only when the second word is a number (or the word is "list" alone),
+    // so a title like "Edit history ;; ..." still posts as an embed.
+    const sub = args[0]?.toLowerCase();
+    const numbered = /^\d+$/.test(args[1] ?? '');
+    if ((sub === 'list' && args.length === 1) || (['edit', 'field', 'post', 'repost', 'delete', 'remove'].includes(sub) && numbered)) {
+      return handleSaved(message, client, PREFIX, guildId, sub, args.slice(1));
     }
 
     // ── 1. Extract target channel ( >> #channel at the end ) ───
@@ -202,37 +215,113 @@ export default {
       return;
     }
 
-    // ── 5. Build and send ──────────────────────────────────────
-    const builtEmbed = new EmbedBuilder()
-      .setColor(color)
-      .setTitle(title)
-      .setDescription(description)
-      .setTimestamp();
-
+    // ── 5. Save and post ───────────────────────────────────────
+    // Saved (handlers/embedMessages.js), so it can be edited later from
+    // here or the dashboard's Embed Messages page and the post updates.
+    let id;
     try {
-      // Raw REST, not client.channels.fetch() + channel.send(): confirmed
-      // in production that pattern fails with "channel.send is not a
-      // function" for at least one channel type on v2.0.1's SDK.
-      await client.rest.post(`/channels/${targetChannelId}/messages`, { body: { embeds: [builtEmbed.toJSON()] } });
+      id = createEmbedMessage(guildId, { title, description, color, timestamp: true }, message.author.id);
+      await publishEmbedMessage(client, guildId, id, targetChannelId);
     } catch (err) {
-      await message.reply({ embeds: [Embed.danger('Send Failed').setDescription(`Could not post to <#${targetChannelId}>: ${err.message}`).toJSON()] }).catch(() => {});
+      if (id) deleteEmbedMessage(client, guildId, id, { keepPost: true }).catch(() => {});
+      await message.reply({ embeds: [Embed.danger('Send Failed').setDescription(err instanceof EmbedMessageError ? err.message : `Could not post to <#${targetChannelId}>: ${err.message}`).toJSON()] }).catch(() => {});
       return;
     }
 
-    // Confirm to the author if they posted to a different channel
-    if (targetChannelId !== message.channelId) {
-      await message.reply({
-        embeds: [
-          Embed.success('Embed Posted')
-            .setDescription(`Your embed was posted to <#${targetChannelId}>.`)
-            .toJSON(),
-        ],
-      });
+    // Tell the author its number. In the same channel the note clears itself
+    // after a few seconds so the embed is left on its own.
+    const note = await message.reply({
+      embeds: [Embed.success(`Posted${targetChannelId !== message.channelId ? ` in <#${targetChannelId}>` : ''} as embed **#${id}**. Change it any time with \`${PREFIX}embed edit ${id} …\` or on the dashboard's Embed Messages page.`).toJSON()],
+    }).catch(() => null);
+    if (note?.id && targetChannelId === message.channelId) {
+      setTimeout(() => client.rest.delete(`/channels/${message.channelId}/messages/${note.id}`).catch(() => {}), 8000);
     }
-    // If same channel, the command message is auto-deleted by commandHandler,
-    // confirmation would just be noise.
   },
 };
+
+// ── Saved embeds ─────────────────────────────────────────────
+const EDIT_PARTS = {
+  title: 'title', description: 'description', desc: 'description', text: 'content', content: 'content',
+  colour: 'color', color: 'color', image: 'image_url', thumbnail: 'thumbnail_url', thumb: 'thumbnail_url',
+  footer: 'footer', author: 'author_name', link: 'url', url: 'url', timestamp: 'timestamp',
+};
+
+async function handleSaved(message, client, PREFIX, guildId, sub, rest) {
+  const reply = e => message.reply({ embeds: [e.toJSON()] }).catch(() => {});
+  try {
+    if (sub === 'list') {
+      const list = listEmbedMessages(guildId);
+      if (!list.length) return reply(Embed.info(`No saved embeds yet. Post one with \`${PREFIX}embed Title ;; Text\`.`, 'Embed Messages'));
+      const lines = list.slice(0, 25).map(m => `**#${m.id}** ${m.title ? m.title.slice(0, 60) : '*(no title)*'}${m.channel_id ? ` · <#${m.channel_id}>` : ' · not posted'}`);
+      return reply(Embed.info(lines.join('\n') + (list.length > 25 ? `\n…and ${list.length - 25} more on the dashboard.` : ''), 'Embed Messages'));
+    }
+
+    const id = Number(rest[0]);
+    if (sub === 'delete' || sub === 'remove') {
+      const keepPost = rest[1]?.toLowerCase() === 'keep';
+      await deleteEmbedMessage(client, guildId, id, { keepPost });
+      return reply(Embed.success(`Embed #${id} deleted${keepPost ? '. The posted message was left up.' : ', along with its posted message.'}`));
+    }
+
+    if (sub === 'post' || sub === 'repost') {
+      const ch = rest[1] ? (rest[1].match(/^<#(\d+)>$/)?.[1] ?? (/^\d{15,25}$/.test(rest[1]) ? rest[1] : null)) : null;
+      if (rest[1] && !ch) return reply(Embed.warning(`Usage: \`${PREFIX}embed post ${id} [#channel]\``));
+      if (ch && !await isChannelInGuild(client, guildId, ch)) return reply(Embed.danger('That channel is not in this server.'));
+      const r = await publishEmbedMessage(client, guildId, id, ch);
+      return reply(Embed.success(r.edited ? `Embed #${id} updated in <#${r.channelId}>.` : `Embed #${id} posted in <#${r.channelId}>.`));
+    }
+
+    if (sub === 'edit') {
+      const part = EDIT_PARTS[rest[1]?.toLowerCase()];
+      const raw = rest.slice(2).join(' ').trim();
+      if (!part || (!raw && part !== 'timestamp')) {
+        return reply(Embed.warning(`Usage: \`${PREFIX}embed edit ${id} <part> <new value | off>\`\nParts: ${Object.keys(EDIT_PARTS).filter((k, i, a) => a.findIndex(x => EDIT_PARTS[x] === EDIT_PARTS[k]) === i).map(k => `\`${k}\``).join(' ')}`));
+      }
+      let value = raw.toLowerCase() === 'off' ? null : parseNewlines(raw);
+      if (part === 'color' && value != null) {
+        value = parseColor(value);
+        if (value === null) return reply(Embed.warning(`Use a colour name like \`[gold]\` or a hex code like \`#F1C40F\`.`));
+      }
+      if (part === 'timestamp') value = !['off', 'no', 'false'].includes(raw.toLowerCase());
+      updateEmbedMessage(guildId, id, { [part]: value });
+      return refreshAfterEdit(message, client, guildId, id, reply);
+    }
+
+    if (sub === 'field') {
+      const m = getEmbedMessage(guildId, id);
+      if (!m) return reply(Embed.warning(`No embed message #${id} in this server.`));
+      const action = rest[1]?.toLowerCase();
+      let fields = m.fields;
+      if (action === 'add' || action === 'addinline') {
+        const text = parseNewlines(rest.slice(2).join(' '));
+        const sep = text.indexOf(';;');
+        if (sep === -1) return reply(Embed.warning(`Usage: \`${PREFIX}embed field ${id} add Name ;; Value\` (\`addinline\` for side by side)`));
+        fields = [...fields, { name: text.slice(0, sep).trim(), value: text.slice(sep + 2).trim(), inline: action === 'addinline' }];
+      } else if (action === 'remove') {
+        const n = Number(rest[2]);
+        if (!Number.isInteger(n) || n < 1 || n > fields.length) return reply(Embed.warning(`Give the field's number, 1 to ${fields.length || 1}.`));
+        fields = fields.filter((_, i) => i !== n - 1);
+      } else if (action === 'clear') {
+        fields = [];
+      } else {
+        return reply(Embed.warning(`Usage: \`${PREFIX}embed field ${id} add Name ;; Value\`, \`remove <number>\` or \`clear\``));
+      }
+      updateEmbedMessage(guildId, id, { fields });
+      return refreshAfterEdit(message, client, guildId, id, reply);
+    }
+  } catch (err) {
+    if (err instanceof EmbedMessageError) return reply(Embed.warning(err.message));
+    throw err;
+  }
+}
+
+// After an edit, updates the posted message (if there is one).
+async function refreshAfterEdit(message, client, guildId, id, reply) {
+  const m = getEmbedMessage(guildId, id);
+  if (!m.message_id) return reply(Embed.success(`Embed #${id} saved. It isn't posted yet: \`${process.env.PREFIX || 'b!'}embed post ${id} #channel\`.`));
+  const r = await publishEmbedMessage(client, guildId, id);
+  return reply(Embed.success(r.edited ? `Embed #${id} updated in <#${r.channelId}>.` : `The old post was gone, so embed #${id} was posted again in <#${r.channelId}>.`));
+}
 
 // ── Help embed ────────────────────────────────────────────────
 function buildHelp(prefix) {
@@ -251,6 +340,14 @@ function buildHelp(prefix) {
     .addFields({
       name:  'Colour Presets',
       value: PRESET_NAMES.slice(0, 18).join(' ') + '\n-# Or use any hex code: `#FF5733`',
+      inline: false,
+    }, {
+      name:  'Editing later',
+      value:
+        `Every embed is saved with a number, so you can change it and the posted message updates.\n` +
+        `\`${prefix}embed list\` · \`${prefix}embed edit 3 image https://…\` · \`${prefix}embed edit 3 footer off\`\n` +
+        `\`${prefix}embed field 3 add Name ;; Value\` · \`${prefix}embed post 3 #channel\` · \`${prefix}embed delete 3\`\n` +
+        `-# Or build them on the dashboard: Community → Embed Messages.`,
       inline: false,
     });
 }

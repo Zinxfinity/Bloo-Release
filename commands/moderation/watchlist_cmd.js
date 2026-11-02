@@ -21,7 +21,7 @@ function parseChannelId(arg) {
 export default {
   name: 'watchlist',
   aliases: ['watch', 'flag'],
-  description: 'Flag users for heightened monitoring. Alerts on mod actions against watched users and when they join.',
+  description: 'Keep an eye on members: get an alert when they join or when staff act on them.',
   usage: '{prefix}watchlist <add|remove|list|info|channel> [@user] [reason]',
   requiredPermission: Permissions.KICK_MEMBERS,
 
@@ -106,6 +106,14 @@ export default {
       return message.reply({ embeds: [Embed.success(`Watchlist alerts will now be sent to <#${chId}>.`).toJSON()] });
     }
 
-    await message.reply({ embeds: [Embed.warning('Subcommands: `add`, `remove`, `list`, `info`, `channel`').toJSON()] });
+    await message.reply({ embeds: [Embed.info([
+      'Keep an eye on members: Bloo alerts your watchlist channel when they join or when staff act on them.',
+      '',
+      `\`${prefix}watchlist channel #mod-alerts\` where the alerts go (do this first)`,
+      `\`${prefix}watchlist add @user [reason]\` start watching someone`,
+      `\`${prefix}watchlist remove @user\` stop watching them`,
+      `\`${prefix}watchlist info @user\` see why they're watched and who added them`,
+      `\`${prefix}watchlist list\` everyone being watched`,
+    ].join('\n'), '👁️ Watchlist').toJSON()] });
   },
 };

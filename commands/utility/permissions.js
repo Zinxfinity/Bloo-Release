@@ -70,7 +70,7 @@ function requirementLabel(cfg, defaultPermission) {
 export default {
   name: 'permissions',
   aliases: ['perms', 'cmdperms'],
-  description: 'Lock commands to a specific Fluxer permission or an exact role in this server.',
+  description: 'Choose who can use each command, by Fluxer permission or by role, or turn commands off.',
   usage: '{prefix}permissions <list|check|permission|role|reset|disable|enable> [args]',
   category: 'utility',
 
@@ -203,6 +203,13 @@ export default {
       return message.reply({ embeds: [Embed.success(`Re-enabled \`${cmdName}\` in this server.`).toJSON()] });
     }
 
-    await message.reply({ embeds: [Embed.info(`Subcommands: \`list\`, \`check\`, \`permission\`, \`role\`, \`reset\`, \`disable\`, \`enable\``).toJSON()] });
+    await message.reply({ embeds: [Embed.info([
+      `\`${prefix}permissions list\` every command you've changed`,
+      `\`${prefix}permissions check warn\` who can use a command right now`,
+      `\`${prefix}permissions permission warn managemessages\` require a different Fluxer permission (\`kick\`, \`ban\`, \`timeout\`, \`manageserver\`, \`admin\` and more)`,
+      `\`${prefix}permissions role warn @Mods\` only people with this role can use it`,
+      `\`${prefix}permissions disable fact [message]\` turn a command off (\`enable\` to turn it back on)`,
+      `\`${prefix}permissions reset warn\` back to the default (\`reset all\` for every command)`,
+    ].join('\n'), '🔐 Command permissions').toJSON()] });
   },
 };

@@ -109,7 +109,7 @@ function buildOpeningEmbed(cfg, ticket, option) {
 export default {
   name: 'ticketfix',
   aliases: ['tfix', 'fixticket', 'repairticket'],
-  description: 'Repair a broken ticket if the bot disconnected mid-creation.',
+  description: 'Fix a ticket that broke, for example if Bloo restarted while it was opening.',
   usage: '{prefix}ticketfix <scan | ghost | orphan | perms | resend | clear> [args]',
   category: 'moderation',
 

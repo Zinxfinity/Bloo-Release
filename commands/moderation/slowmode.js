@@ -29,7 +29,7 @@ function formatDuration(seconds) {
 export default {
   name: 'slowmode',
   aliases: ['slow', 'ratelimit'],
-  description: 'Set channel slowmode. Use `off` or `0` to disable. No args shows current rate.',
+  description: 'Set how long members wait between messages in a channel. On its own, it shows the current setting.',
   usage: '{prefix}slowmode [off | <time>] [#channel]\nTime units: 5s, 10m, 1h, or raw seconds',
   requiredPermission: Permissions.KICK_MEMBERS,
 
@@ -71,7 +71,7 @@ export default {
     if (seconds === null) {
       return message.reply({
         embeds: [Embed.warning(
-          `Invalid duration. Use a number with a unit: \`5s\`, \`30s\`, \`1m\`, \`10m\`, \`1h\`\nOr \`off\` to remove slowmode.`
+          `Bloo didn't understand that time. Use a number and a unit, like \`5s\`, \`30s\`, \`1m\` or \`1h\`, or \`off\` to turn slowmode off.`
         ).toJSON()],
       });
     }

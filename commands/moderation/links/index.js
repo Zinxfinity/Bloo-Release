@@ -38,7 +38,7 @@ function entryTypeLabel(entry) {
 export default {
   name: 'links',
   aliases: ['linkscanner', 'linkscan'],
-  description: 'Configure the link scanner to block all links except approved domains.',
+  description: 'Block links except from sites you allow, with optional punishments for repeat posters.',
   usage: '{prefix}links <on|off|status|allow|deny|channel|enforce> [args]',
   category: 'moderation',
 

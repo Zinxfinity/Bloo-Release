@@ -6,7 +6,7 @@ const REACTIONS = ['1️⃣','2️⃣','3️⃣','4️⃣','5️⃣','6️⃣','
 export default {
   name: 'poll',
   aliases: [], // not "vote": that's b!vote (FluxerList voting)
-  description: 'Create a poll. Options separated by | for multi-choice.',
+  description: 'Make a quick poll. Separate choices with | to give several options.',
   usage: '{prefix}poll <question> [option1 | option2 | ...]',
   requiredPermission: null,
 

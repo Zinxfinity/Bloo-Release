@@ -301,6 +301,7 @@ export async function handleMessage(client, message) {
     }
 
     try {
+      await applyReplyPing(message, guildId);
       // Anyone can trigger a tag, so a tag containing @everyone or a role
       // mention must not let any member mass-ping through the bot.
       const allowedMentions = { parse: ['users'] };
@@ -311,7 +312,7 @@ export async function handleMessage(client, message) {
       } else {
         await message.reply({ content: tag.response, allowedMentions });
       }
-      await safeDelete(message);
+      await tidyCommandMessage(message, guildId, null);
     } catch { /* non-fatal */ }
     return;
   }
@@ -477,9 +478,10 @@ export async function handleMessage(client, message) {
     ? { userId, guildId, channelId: message.channel?.id ?? message.channelId, command: command.name, args, started: Date.now() }
     : null;
   try {
+    await applyReplyPing(message, guildId);
     await command.execute({ message, args, prefix, client });
     if (betaLog) ecoBeta().logCommand({ ...betaLog, outcome: 'ok', ms: Date.now() - betaLog.started });
-    await safeDelete(message);
+    await tidyCommandMessage(message, guildId, command);
   } catch (err) {
     if (betaLog) ecoBeta().logCommand({ ...betaLog, outcome: 'error', error: err?.message ?? err, ms: Date.now() - betaLog.started });
     await handleCommandError(message, command, prefix, err);
@@ -589,6 +591,29 @@ async function safeReply(message, payload) {
 
 async function safeDelete(message) {
   try { await message.delete(); } catch { /* best effort, message may already be gone */ }
+}
+
+// ─── Command message settings (handlers/guildSettings.js) ─────────────────────
+// Loaded lazily, like the cooldown settings above.
+let _cmdMsgSettings = null;
+const cmdMessageSettings = async () => (_cmdMsgSettings ??= await import('./guildSettings.js').catch(() => null));
+
+// After a command (or tag) ran: delete the message it was typed in, unless
+// the server keeps that group's messages. command = null for a tag.
+async function tidyCommandMessage(message, guildId, command) {
+  const mod = await cmdMessageSettings();
+  if (mod?.shouldDeleteCommandMessage && !mod.shouldDeleteCommandMessage(guildId, command)) return;
+  await safeDelete(message);
+}
+
+// With reply pings off, Bloo's replies to this message don't notify its author.
+async function applyReplyPing(message, guildId) {
+  const mod = await cmdMessageSettings();
+  if (!mod?.getCommandMessageSettings || mod.getCommandMessageSettings(guildId).replyPing) return;
+  const reply = message.reply.bind(message);
+  message.reply = opts => reply(typeof opts === 'string'
+    ? { content: opts, allowedMentions: { repliedUser: false } }
+    : { ...opts, allowedMentions: { ...(opts?.allowedMentions ?? {}), repliedUser: false } });
 }
 
 async function safeDM(message, payload) {

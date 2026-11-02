@@ -18,7 +18,7 @@ import { getLinkAuditorConfig, setLinkAuditorEnabled } from '../../handlers/link
 export default {
   name: 'linkauditor',
   aliases: ['linkaudit'],
-  description: 'Enable or disable automatic link archiving for non-staff members.',
+  description: 'Repost links from members as archived copies on web.archive.org. Staff aren\'t affected.',
   usage: '{prefix}linkauditor [on|off]',
   category: 'moderation',
 

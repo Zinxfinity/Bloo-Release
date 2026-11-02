@@ -44,7 +44,7 @@ function caseIcon(action) { return ACTION_EMOJI[normalizeAction(action)] ?? 'ðŸ“
 export default {
   name: 'lookup',
   aliases: ['lu'],
-  description: 'Full profile lookup for a user: ban history, warnings, tickets, and rank.',
+  description: 'See everything about a member at once: bans, warnings, tickets and whether they\'re staff.',
   usage: '{prefix}lookup @user',
   category: 'moderation',
 

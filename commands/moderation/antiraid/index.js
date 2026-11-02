@@ -29,7 +29,7 @@ import { Permissions } from '../../../config/guildPermissions.js';
 export default {
   name: 'antiraid',
   aliases: ['captcha', 'verification'],
-  description: 'Configure captcha verification for new members to block raids and bots.',
+  description: 'Protect against raids: captcha checks for new members, Raid Mode and a verified role.',
   usage: '{prefix}antiraid <on | off | role | channel | mode | raid | status | bulkverify>',
   example: '{prefix}antiraid on\n{prefix}antiraid role @Verified\n{prefix}antiraid bulkverify all\n{prefix}antiraid bulkverify role @Members',
   category: 'moderation',

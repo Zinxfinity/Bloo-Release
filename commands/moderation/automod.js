@@ -42,7 +42,7 @@ function statusEmbed(cfg, prefix) {
 export default {
   name: 'automod',
   aliases: ['am', 'amod'],
-  description: 'Configure per-guild automated moderation.',
+  description: 'Automatically deal with spam, caps, mass mentions, emoji spam and invite links.',
   usage: '{prefix}automod [on|off|spam|caps|mentions|emoji|invites|action] [args]',
   category: 'moderation',
 

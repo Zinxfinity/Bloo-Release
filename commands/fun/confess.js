@@ -147,7 +147,7 @@ export async function handleConfessDM(message, client) {
 export default {
   name: 'confess',
   aliases: ['confession', 'confessions'],
-  description: 'Set up and manage the anonymous confession system. Members DM the bot to post confessions anonymously.',
+  description: 'Let members post anonymous confessions by DMing Bloo. Set it up, review confessions and block members here.',
   usage: '{prefix}confess setup #channel\n{prefix}confess moderation <on|off>\n{prefix}confess replies <on|off>\n{prefix}confess approve <id>\n{prefix}confess deny <id>\n{prefix}confess pending\n{prefix}confess blacklist <add|remove> <@user>\n{prefix}confess reveal <id>\n{prefix}confess status',
   category: 'fun',
   requiredPermission: Permissions.BAN_MEMBERS,

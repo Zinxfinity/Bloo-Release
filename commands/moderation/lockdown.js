@@ -119,7 +119,7 @@ export async function restoreChannel(client, guildId, channelId) {
 export default {
   name: 'lockdown',
   aliases: ['lock', 'unlock', 'lift'],
-  description: 'Lock or unlock channels. Use `all` for server-wide lockdown or a category name/ID.',
+  description: 'Stop members talking in a channel, a category or the whole server, and unlock it again.',
   usage: '{prefix}lockdown [#channel|all|<category>] [reason]\n{prefix}lockdown unlock [#channel|all]\n{prefix}lockdown lift [all]',
   requiredPermission: Permissions.BAN_MEMBERS,
 

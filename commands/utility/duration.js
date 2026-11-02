@@ -54,7 +54,7 @@ const banLine = (b, withUser) =>
 export default {
   name: 'duration',
   aliases: ['timers', 'active'],
-  description: 'View active temp bans and reminders.',
+  description: 'See active temp bans and reminders, and how long each has left.',
   usage: '{prefix}duration [me | bans | @user]',
   category: 'utility',
 

@@ -33,10 +33,18 @@ async function canManageGrants(guildId, userId) {
   return (await getDashTier(db, guildId, userId)) === 'co_owner';
 }
 
+// What each dashboard access level allows, for when someone types an unknown one.
+const TIER_HELP = [
+  '`viewer` can look around but change nothing',
+  '`mod` can moderate: warnings, actions, tickets, cases',
+  '`admin` can also change settings',
+  '`co_owner` can do everything, including who has access',
+].join('\n');
+
 export default {
   name: 'dash',
   aliases: ['dashboard', 'dashaccess'],
-  description: 'Manage who can access this server\'s dashboard.',
+  description: 'Choose who can use this server\'s dashboard, and what they can change.',
   usage: '{prefix}dash <add|remove|list> [@user] [viewer|mod|admin|co_owner]\n{prefix}dash role <add|remove> <@role> [viewer|mod|admin|co_owner]',
   requiredPermission: null, // custom gate below, not permission-bit based
   internalAccess: true, // subcommands gate themselves via resolveAccess
@@ -102,7 +110,7 @@ export default {
       }
       const roleTier = roleTierArg?.toLowerCase();
       if (!isValidTier(roleTier)) {
-        return message.reply({ embeds: [Embed.warning(`Invalid tier. Valid tiers: ${DASH_TIERS.join(', ')}`).toJSON()] });
+        return message.reply({ embeds: [Embed.warning(TIER_HELP, 'Pick an access level').toJSON()] });
       }
       if (!(await canManageRoleTier(db, guildId, userId, roleTier, roleId))) {
         return message.reply({ embeds: [Embed.denied('Only the Server Owner can tie a role to Co-Owner access.').toJSON()] });
@@ -126,7 +134,7 @@ export default {
       }
       const tier = tierArg?.toLowerCase();
       if (!isValidTier(tier)) {
-        return message.reply({ embeds: [Embed.warning(`Invalid tier. Valid tiers: ${DASH_TIERS.join(', ')}`).toJSON()] });
+        return message.reply({ embeds: [Embed.warning(TIER_HELP, 'Pick an access level').toJSON()] });
       }
       grantDashTier(db, guildId, targetId, tier, userId);
       return message.reply({ embeds: [Embed.success(`<@${targetId}> now has **${tier}** dashboard access.`).toJSON()] });

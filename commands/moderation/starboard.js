@@ -48,7 +48,7 @@ function buildStatusEmbed(cfg, prefix) {
 export default {
   name: 'starboard',
   aliases: ['star', 'sb'],
-  description: 'Configure the starboard channel where highly-reacted messages get pinned.',
+  description: 'Repost popular messages to a starboard channel once they get enough reactions.',
   usage: '{prefix}starboard <channel | threshold | emoji | on | off | selfstar | bots | category | status>',
   category: 'moderation',
 

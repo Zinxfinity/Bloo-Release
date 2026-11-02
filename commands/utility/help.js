@@ -133,7 +133,7 @@ export default {
           .setColor(COLORS.INFO)
           .setTitle(`${prefix}${command.name}`)
           .addFields(
-            { name: 'Description', value: command.description ?? 'No description.', inline: false },
+            { name: 'Description', value: pfx(command.description ?? 'No description.'), inline: false },
             { name: 'Usage',       value: pfx(command.usage ?? `{prefix}${command.name}`), inline: false },
             { name: 'Category',    value: command.category?.charAt(0).toUpperCase() + command.category?.slice(1) ?? 'Unknown', inline: true },
             { name: 'Requires',    value: rankLabel, inline: true },
@@ -176,7 +176,7 @@ export default {
           const rows  = slice.map(c => {
             const req = c.requiredPermission != null ? getRequiresLabel(c) : null;
             const tag = req ? ` *(${req})*` : '';
-            return `\`${prefix}${c.name}\`${tag}: ${c.description ?? ''}`;
+            return `\`${prefix}${c.name}\`${tag}: ${(c.description ?? '').replace(/\{prefix\}/g, prefix)}`;
           });
 
           const title = totalPages > 1

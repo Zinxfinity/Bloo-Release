@@ -58,8 +58,8 @@ const STAFF_PERMISSION = Permissions.BAN_MEMBERS;
 export default {
   name: 'ticket',
   aliases: ['tickets', 'tk'],
-  description: 'Configure the support ticket system: panel, categories, and options.',
-  usage: '{prefix}ticket <panel | category | option | status | role | icon | color | closeemoji | blacklist | reopen>',
+  description: 'Let members open private support tickets. Run {prefix}ticket on its own for every ticket command.',
+  usage: '{prefix}ticket  (every ticket command)\n{prefix}ticket setup\n{prefix}ticket close [reason]',
 
   // Open at the command level so a ticket opener can run `!ticket close` in
   // their own ticket. Every other subcommand is gated below (config) or
@@ -101,31 +101,43 @@ export default {
     if (subCmd === 'reopen')            return handleReopen(ctx);
 
     const staffLabel = requirementLabel(guildId, 'ticket', STAFF_PERMISSION);
-    await message.reply({ embeds: [Embed.info('🎫 Ticket System')
+    // Grouped by what someone is trying to do. b!ticket remove still works
+    // (same as panel delete) but isn't listed twice.
+    const P = PREFIX;
+    await message.reply({ embeds: [Embed.info('Members open a private ticket from a panel, and your support team answers there.', '🎫 Tickets')
       .addFields(
-        { name: `Config *(${staffLabel})*`,
+        { name: `1. Set it up *(${staffLabel})*`,
           value:
-            `\`${PREFIX}ticket setup\`: first-time setup guide\n` +
-            `\`${PREFIX}ticket channel/category/role/title/description/icon/banner/color\`: configure the panel\n` +
-            `\`${PREFIX}ticket closeemoji <emoji>\`: the emoji on a ticket's close button\n` +
-            `\`${PREFIX}ticket option add/remove/list/message\`: manage reaction options\n` +
-            `\`${PREFIX}ticket panel\`: post or repost the panel\n` +
-            `\`${PREFIX}ticket panel delete\`: delete the current panel\n` +
-            `\`${PREFIX}ticket remove\`: remove the panel before relocating\n` +
-            `\`${PREFIX}ticket status\`: view current config\n` +
-            `\`${PREFIX}ticket perms\`: what ticket openers can do (attach files, embed links, react)`,
+            `\`${P}ticket setup\` walks you through everything below\n` +
+            `\`${P}ticket role @Support\` who answers tickets\n` +
+            `\`${P}ticket category <category id>\` where new tickets open\n` +
+            `\`${P}ticket channel #support\` where the panel goes\n` +
+            `\`${P}ticket option add 🐛 Bug Report\` add a ticket type (also \`option list\`, \`option remove\`, and \`option message\` for its first message)\n` +
+            `\`${P}ticket panel\` post the panel members click · \`${P}ticket panel delete\` take it down`,
           inline: false },
-        { name: 'General',
+        { name: `2. Change how it works *(${staffLabel})*`,
           value:
-            `\`${PREFIX}ticket close [reason]\`: close this ticket channel\n` +
-            `\`${PREFIX}ticket type <keyword>\`: recategorize this ticket (staff only)\n` +
-            `\`${PREFIX}ticket allow attach\` / \`deny attach\`: change this ticket's opener (staff only)\n` +
-            `\`${PREFIX}ticket blacklist add/remove/list\`: manage the ticket blacklist\n` +
-            `\`${PREFIX}ticket case <id>\`: look up a ticket case\n` +
-            `\`${PREFIX}ticket reopen <id>\`: reopen a closed ticket in a new channel (staff)`,
+            `\`${P}ticket title\` / \`description\` / \`icon\` / \`banner\` / \`color\` how the panel looks (type \`[\\n]\` for a new line)\n` +
+            `\`${P}ticket closeemoji ❌\` the emoji that closes a ticket when someone reacts with it\n` +
+            `\`${P}ticket delay 10\` seconds before a closed ticket's channel is deleted\n` +
+            `\`${P}ticket openerclose on|off\` whether members can close their own tickets\n` +
+            `\`${P}ticket perms\` whether members can attach files, embed links or react in their tickets\n` +
+            `\`${P}ticket status\` see every setting`,
+          inline: false },
+        { name: '3. Inside a ticket',
+          value:
+            `\`${P}ticket close [reason]\` close it: the support role and staff, plus the member who opened it unless \`openerclose\` is off\n` +
+            `\`${P}ticket type <keyword>\` move it to a different ticket type *(staff)*\n` +
+            `\`${P}ticket allow attach\` / \`deny attach\` let this ticket's member send files, or stop them (also \`embed\`, \`react\`) *(staff)*`,
+          inline: false },
+        { name: '4. Past tickets and blocking *(staff)*',
+          value:
+            `\`${P}ticket case <id>\` look up a ticket\n` +
+            `\`${P}ticket reopen <id>\` reopen a closed ticket in a new channel\n` +
+            `\`${P}ticket blacklist add @user\` stop someone opening tickets (also \`remove\`, \`list\`)`,
           inline: false },
       )
-      .setFooter({ text: 'Tip: use [\\n] in title/description for line breaks' })
+      .setFooter({ text: 'Everything here is also on the dashboard: Community → Tickets.' })
       .toJSON()] });
   },
 };

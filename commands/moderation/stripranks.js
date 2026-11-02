@@ -23,7 +23,7 @@ function parseRoleId(arg) {
 export default {
   name: 'stripranks',
   aliases: ['striproles', 'nuke', 'clearroles'],
-  description: 'Remove all roles from a member. Use --keep to preserve specific ones.',
+  description: 'Remove every role from a member. Add --keep @role to keep some.',
   usage: '{prefix}stripranks @user [--keep @role...] [reason]',
   category: 'moderation',
 

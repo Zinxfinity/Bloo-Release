@@ -547,7 +547,12 @@ async function trackFailure(client, feed, reason = null) {
 // never actually left, every time an admin ran the command shortly after a
 // restart. Removed entirely in favor of this.
 export function pruneGuildFeeds(guildId) {
-  stmts.deleteByGuild.run(guildId);
+  // What each feed has already posted is kept by feed, not by server, so it
+  // goes first or it's left behind for feeds that no longer exist.
+  for (const t of ['webhook_seen', 'webhook_seen_items']) {
+    try { db.prepare(`DELETE FROM ${t} WHERE feed_id IN (SELECT id FROM webhook_feeds WHERE guild_id = ?)`).run(guildId); } catch { /* table not created yet */ }
+  }
+  return stmts.deleteByGuild.run(guildId).changes;
 }
 
 // ─── Fetch error logging ─────────────────────────────────────────────────────

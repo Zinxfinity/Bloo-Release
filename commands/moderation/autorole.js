@@ -38,7 +38,7 @@ function upsertAutorole(guildId, fields) {
 export default {
   name: 'autorole',
   aliases: ['joinrole'],
-  description: 'Automatically assign a role when a member joins.',
+  description: 'Give new members a role as soon as they join.',
   usage: '{prefix}autorole [@Role | off | bots <on|off>]',
   category: 'moderation',
 
